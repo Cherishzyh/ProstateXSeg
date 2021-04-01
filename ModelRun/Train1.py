@@ -1,7 +1,10 @@
 import shutil
+import os
+import scipy.signal as signal
 import matplotlib.pyplot as plt
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
 
@@ -11,14 +14,14 @@ from SSHProject.BasicTool.MeDIT.Others import MakeFolder, CopyFile
 from SSHProject.CnnTools.T4T.Utility.Data import *
 from SSHProject.CnnTools.T4T.Utility.CallBacks import EarlyStopping
 from SSHProject.CnnTools.T4T.Utility.Initial import HeWeightInit
-from SSHProject.CnnTools.T4T.Utility.Loss import DiceLoss
+from SSHProject.CnnTools.T4T.Utility.Loss import FocalLoss
 
-from SegModel.UNet import UNet, UNet25D
+# from SegModel.UNet import UNet, UNet25D
 from SegModel.MultiSeg import MultiSegPlus
 from SegModel.AttenUnet import AttenUNet
-from SegModel.Atten import AttU_Net
-from PreProcess.Nii2NPY import ROIOneHot
-
+from Statistics.Loss import DiceLoss
+from Statistics.Metric import Dice
+from ModelfromGitHub.UNet.unet_model import UNet, UNet25D
 
 
 def ClearGraphPath(graph_path):
@@ -41,11 +44,11 @@ def _GetLoader(sub_list, aug_param_config, input_shape, batch_size, shuffle):
 def Train():
     torch.autograd.set_detect_anomaly(True)
 
-    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     input_shape = (200, 200)
     total_epoch = 10000
     batch_size = 24
-    model_folder = MakeFolder(model_root + '/UNet_atten')
+    model_folder = MakeFolder(model_root + '/UNet_0330_weigthedloss')
 
     ClearGraphPath(model_folder)
 
@@ -72,11 +75,12 @@ def Train():
     train_loader, train_batches = _GetLoader(train_list, param_config, input_shape, batch_size, True)
     val_loader, val_batches = _GetLoader(val_list, param_config, input_shape, batch_size, True)
 
-    model = AttU_Net(1, 5, 2).to(device)
+    model = UNet25D(n_channels=1, n_classes=5, bilinear=True, factor=2).to(device)
     model.apply(HeWeightInit)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    criterion1 = torch.nn.NLLLoss()
+    weight = torch.from_numpy(np.array([0.1, 0.8, 0.8, 1., 1.])).float()
+    criterion1 = torch.nn.CrossEntropyLoss(weight=weight.to(device))
     criterion2 = DiceLoss()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.5,
@@ -85,41 +89,77 @@ def Train():
     writer = SummaryWriter(log_dir=str(model_folder / 'log'), comment='Net')
 
     for epoch in range(total_epoch):
+        train_dice, val_dice = [], []
+        train_dice_pz, val_dice_pz = [], []
+        train_dice_cg, val_dice_cg = [], []
+        train_dice_U, val_dice_U = [], []
+        train_dice_AFMS, val_dice_AFMS = [], []
+
         train_loss, val_loss = 0., 0.
+        train_loss1, val_loss1 = 0., 0.
+        train_loss2, val_loss2 = 0., 0.
 
         model.train()
         for ind, (inputs, outputs) in enumerate(train_loader):
-            optimizer.zero_grad()
+            #
+            outputs_nocoding = torch.argmax(outputs, dim=1)
 
-            outputs_roi = torch.argmax(outputs, dim=1).numpy()
 
             inputs = MoveTensorsToDevice(inputs, device)
-            # outputs = MoveTensorsToDevice(torch.from_numpy(ROIOneHot(outputs_roi).transpose(1, 0, 2, 3)), device)
-            outputs = MoveTensorsToDevice(outputs, device)
-            outputs_roi = MoveTensorsToDevice(torch.from_numpy(outputs_roi), device)
+            outputs_nocoding = MoveTensorsToDevice(outputs_nocoding, device)
+            outputs = MoveTensorsToDevice(outputs.int(), device)
 
             preds = model(inputs)
-            loss = criterion1(preds, outputs_roi.long()) + criterion2(preds, outputs)
+            # Crossentropy Loss: preds: logits(没有做softmax)
+            #                    labels: 没有做编码
+            # Dice Loss: preds: 要做softmax
+            #            labels: 要做编码，格式和preds相同
+            softmax_preds = F.softmax(preds, dim=1)
 
+            train_dice.append(Dice(softmax_preds.cpu().data.numpy(), outputs.cpu().data.numpy()))
+            train_dice_pz.append(Dice(softmax_preds.cpu().data.numpy()[:, 1], outputs.cpu().data.numpy()[:, 1]))
+            train_dice_cg.append(Dice(softmax_preds.cpu().data.numpy()[:, 2], outputs.cpu().data.numpy()[:, 2]))
+            train_dice_U.append(Dice(softmax_preds.cpu().data.numpy()[:, 3], outputs.cpu().data.numpy()[:, 3]))
+            train_dice_AFMS.append(Dice(softmax_preds.cpu().data.numpy()[:, 4], outputs.cpu().data.numpy()[:, 4]))
+
+            loss1 = criterion1(preds, outputs_nocoding)
+            loss2 = criterion2(softmax_preds, outputs)
+            loss = loss1 + loss2
+
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
+            train_loss1 += loss1.item()
+            train_loss2 += loss2.item()
             train_loss += loss.item()
 
         model.eval()
         with torch.no_grad():
             for ind, (inputs, outputs) in enumerate(val_loader):
-                outputs_roi = torch.argmax(outputs, dim=1).numpy()
+
+                outputs_nocoding = torch.argmax(outputs, dim=1)
 
                 inputs = MoveTensorsToDevice(inputs, device)
-                outputs = MoveTensorsToDevice(outputs, device)
-                # outputs = MoveTensorsToDevice(torch.from_numpy(ROIOneHot(outputs_roi).transpose(1, 0, 2, 3)), device)
-                outputs_roi = MoveTensorsToDevice(torch.from_numpy(outputs_roi), device)
+                outputs_nocoding = MoveTensorsToDevice(outputs_nocoding, device)
+                outputs = MoveTensorsToDevice(outputs.int(), device)
 
                 preds = model(inputs)
-                loss = criterion1(preds, outputs_roi.long()) + criterion2(preds, outputs)
+                softmax_preds = F.softmax(preds, dim=1)
+
+                val_dice.append(Dice(softmax_preds.cpu().data.numpy(), outputs.cpu().data.numpy()))
+                val_dice_pz.append(Dice(softmax_preds.cpu().data.numpy()[:, 1], outputs.cpu().data.numpy()[:, 1]))
+                val_dice_cg.append(Dice(softmax_preds.cpu().data.numpy()[:, 2], outputs.cpu().data.numpy()[:, 2]))
+                val_dice_U.append(Dice(softmax_preds.cpu().data.numpy()[:, 3], outputs.cpu().data.numpy()[:, 3]))
+                val_dice_AFMS.append(Dice(softmax_preds.cpu().data.numpy()[:, 4], outputs.cpu().data.numpy()[:, 4]))
+
+                loss1 = criterion1(preds, outputs_nocoding)
+                loss2 = criterion2(softmax_preds, outputs)
+                loss = loss1 + loss2
 
                 val_loss += loss.item()
+                val_loss1 += loss1.item()
+                val_loss2 += loss2.item()
 
         # Save Tensor Board
         for index, (name, param) in enumerate(model.named_parameters()):
@@ -129,9 +169,27 @@ def Train():
         writer.add_scalars('Loss',
                            {'train_loss': train_loss / train_batches,
                             'val_loss': val_loss / val_batches}, epoch + 1)
+        writer.add_scalars('Crossentropy Loss',
+                           {'train_loss': train_loss1 / train_batches,
+                            'val_loss': val_loss1 / val_batches}, epoch + 1)
+        writer.add_scalars('Dice Loss',
+                           {'train_loss': train_loss2 / train_batches,
+                            'val_loss': val_loss2 / val_batches}, epoch + 1)
 
+        writer.add_scalars('Dice',
+                           {'train_loss': np.sum(train_dice) / len(train_dice),
+                            'val_loss': np.sum(val_dice) / len(val_dice)}, epoch + 1)
 
-        print('Epoch {}: loss: {:.3f}, val-loss: {:.3f}'.format(epoch + 1, train_loss / train_batches, val_loss / val_batches))
+        print('*************************************** Epoch {} | (◕ᴗ◕✿) ***************************************'.format(epoch + 1))
+        print('    dice pz: {:.3f},     dice cg: {:.3f},     dice U: {:.3f},     dice AFMS: {:.3f}'.
+              format(np.sum(train_dice_pz) / len(train_dice_pz), np.sum(train_dice_cg) / len(train_dice_cg),
+                     np.sum(train_dice_U) / len(train_dice_U), np.sum(train_dice_AFMS) / len(train_dice_AFMS)))
+        print('val-dice pz: {:.3f}, val-dice cg: {:.3f}, val-dice U: {:.3f}, val-dice AFMS: {:.3f}'.
+              format(np.sum(val_dice_pz) / len(val_dice_pz), np.sum(val_dice_cg) / len(val_dice_cg),
+                     np.sum(val_dice_U) / len(val_dice_U), np.sum(val_dice_AFMS) / len(val_dice_AFMS)))
+        print()
+        print('loss: {:.3f}, val-loss: {:.3f}'.format(train_loss / train_batches, val_loss / val_batches))
+
         scheduler.step(val_loss)
         early_stopping(val_loss, model, (epoch + 1, val_loss))
 
@@ -142,8 +200,8 @@ def Train():
         writer.flush()
         writer.close()
 
+
 def CheckInput():
-    from PreProcess.Nii2NPY import ROIOneHot
     torch.autograd.set_detect_anomaly(True)
 
     input_shape = (200, 200)
@@ -176,33 +234,14 @@ def CheckInput():
     for epoch in range(total_epoch):
         for ind, (inputs, outputs) in enumerate(train_loader):
             outputs_roi = torch.argmax(outputs, dim=1).numpy()
-            outputs = ROIOneHot(outputs_roi).transpose(1, 0, 2, 3)
-
             for index in range(inputs.shape[0]):
-                plt.subplot(231)
-                plt.imshow(inputs[index, 0, ...].numpy(), cmap='gray')
+                plt.imshow(inputs[index, 1, ...].numpy(), cmap='gray')
                 plt.contour(outputs_roi[index])
-
-                plt.subplot(232)
-                plt.imshow(inputs[index, 0, ...].numpy(), cmap='gray')
-                plt.contour(outputs[index, 1, ...])
-
-                plt.subplot(233)
-                plt.imshow(inputs[index, 0, ...].numpy(), cmap='gray')
-                plt.contour(outputs[index, 2, ...])
-
-                plt.subplot(234)
-                plt.imshow(inputs[index, 0, ...].numpy(), cmap='gray')
-                plt.contour(outputs[index, 3, ...])
-
-                plt.subplot(235)
-                plt.imshow(inputs[index, 0, ...].numpy(), cmap='gray')
-                plt.contour(outputs[index, 4, ...])
                 plt.show()
 
 
 if __name__ == '__main__':
     model_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model'
-    data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice'
+    data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice'
     Train()
     # CheckInput()

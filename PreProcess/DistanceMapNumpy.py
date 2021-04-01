@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from copy import deepcopy
 import matplotlib.pyplot as plt
@@ -6,8 +7,8 @@ from scipy.ndimage.filters import maximum_filter, median_filter
 from scipy.spatial.distance import cdist
 from scipy.ndimage import label
 
-from SSHProject.BasicTool.MeDIT.SaveAndLoad import LoadImage
-from SSHProject.BasicTool.MeDIT.Normalize import Normalize01
+from BasicTool.MeDIT.SaveAndLoad import LoadImage
+from BasicTool.MeDIT.Normalize import Normalize01
 
 
 # def IntraSliceFilter(attention, diff_value, is_show=False):
@@ -121,12 +122,52 @@ def DistanceMap(roi, is_show=False):
 
 if __name__ == '__main__':
 
-    roi_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OriginalData/ProstateX-0340/roi.nii.gz'
-    base_rate = 0.025
+    # roi_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OriginalData/ProstateX-0340/roi.nii.gz'
+    # base_rate = 0.025
+    #
+    # image, roi, _ = LoadImage(roi_path)
+    #
+    # # result = IntraSliceFilter(roi[..., 10], base_rate)  #result.shape=(23, 399, 399)
+    # roi = roi[..., 10]
+    # dis_map = DistanceMap(roi, is_show=True)
+    #
+    case_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/CaseResult'
+    three_slice = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice'
+    roi_path = os.path.join(three_slice, 'RoiSliceNoOneHot')
+    t2_path = os.path.join(three_slice, 'T2Slice')
+    dis_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/DistanceMap'
+    image_save = os.path.join(dis_root, 'Image')
+    npy_save = os.path.join(dis_root, 'DisMap')
 
-    image, roi, _ = LoadImage(roi_path)
+    for index, case in enumerate(os.listdir(case_folder)):
+        case_name = case[: case.index('.npy')]
+        t2 = np.load(os.path.join(t2_path, case))
+        roi = np.squeeze(np.load(os.path.join(roi_path, case)))
+        pred = np.load(os.path.join(case_folder, case))
+        pred = np.argmax(pred, axis=0)
+        _, _, new_roi = KeepLargest(pred)  #已经把大于1的值全部变为1， 所以算dis map没有错
+        dis = DistanceMap(pred)
+        # dis = dis[np.newaxis, ...]
 
-    # result = IntraSliceFilter(roi[..., 10], base_rate)  #result.shape=(23, 399, 399)
-    roi = roi[..., 10]
-    dis_map = DistanceMap(roi, is_show=True)
+        # plt.subplot(121)
+        # plt.imshow(t2[1, ...], cmap='gray')
+        # plt.contour(roi)
+        # plt.subplot(122)
+        # plt.imshow(pred, cmap='gray')
+        # plt.show()
+
+        plt.subplot(131)
+        plt.imshow(t2[1, ...], cmap='gray')
+        plt.contour(roi)
+        plt.subplot(132)
+        plt.imshow(new_roi, cmap='gray')
+        plt.subplot(133)
+        plt.imshow(dis, cmap='jet')
+        plt.show()
+        # plt.savefig(os.path.join(image_save, '{}.jpg'.format(case_name)))
+        # plt.close()
+        # print('******{} / 1727******'.format(index))
+        # np.save(os.path.join(npy_save, case), dis)
+
+
 

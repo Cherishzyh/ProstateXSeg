@@ -3,11 +3,12 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
 import matplotlib.pyplot as plt
+from scipy.ndimage import binary_dilation
 
-from SSHProject.CnnTools.T4T.Utility.Data import *
+from CnnTools.T4T.Utility.Data import *
 
-from SSHProject.BasicTool.MeDIT.Statistics import BinarySegmentation
-from SSHProject.BasicTool.MeDIT.ArrayProcess import ExtractPatch
+from BasicTool.MeDIT.Statistics import BinarySegmentation
+from BasicTool.MeDIT.ArrayProcess import ExtractPatch
 
 # from SegModel.UNet import UNet, UNet25D
 # from SegModel.AttenUnet import AttenUNet
@@ -25,7 +26,7 @@ from PreProcess.DistanceMapNumpy import KeepLargest
 
 
 def ModelTest(model, model_folder, epoch, data_type='train'):
-    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     input_shape = (200, 200)
     batch_size = 2
 
@@ -34,8 +35,9 @@ def ModelTest(model, model_folder, epoch, data_type='train'):
 
     data = DataManager(sub_list=sub_list)
     data.AddOne(Image2D(data_root + '/T2Slice', shape=input_shape))
-    data.AddOne(Image2D(data_root + '/RoiSlice', shape=input_shape), is_input=False)
-    data.AddOne(Image2D(model_step1_pred, shape=input_shape, is_roi=True))
+    data.AddOne(Image2D(data_root + '/RoiSlice', shape=input_shape, is_roi=True), is_input=False)
+    # data.AddOne(Image2D(data_root + '/RoiSliceNoOneHot', shape=input_shape), is_input=False)
+    # data.AddOne(Image2D(model_step1_pred, shape=input_shape, is_roi=True))
     data_loader = DataLoader(data, batch_size=batch_size, shuffle=False)
 
     model.to(device)
@@ -46,32 +48,17 @@ def ModelTest(model, model_folder, epoch, data_type='train'):
     model.eval()
     with torch.no_grad():
         for inputs, outputs in data_loader:
-            # outputs_roi = torch.argmax(outputs, dim=1)
-            # inputs_nobg = inputs * torch.unsqueeze(outputs_roi, dim=1)
-            # other_roi = torch.unsqueeze(torch.sum(outputs[:, 2:, ...], dim=1), dim=1)
-            # new_roi = torch.cat([outputs[:, 0:1, ...], outputs[:, 1:2, ...], other_roi], dim=1)
+            # mask = torch.squeeze(outputs[1], dim=1)
+            # roi_dilate = torch.from_numpy(binary_dilation(mask, structure=np.ones((1, 11, 11))))
+            # inputs = inputs * torch.unsqueeze(roi_dilate, dim=1)
 
-            ###############################################################################################################
-            input1 = inputs[0]
-            input2 = inputs[1]
-            input2_roi = torch.unsqueeze(torch.argmax(input2, dim=1), dim=1).numpy()
-
-            # input2_roi_list = []
-            dis_list = []
-            for batch in range(input2_roi.shape[0]):
-                _, _, new_roi = KeepLargest(input2_roi[batch, ...])
-                dis = DistanceMap(new_roi, is_show=False)
-                # input2_roi_list.append(new_roi)
-                dis_list.append(dis)
-            # input2_roi = torch.from_numpy(np.array(input2_roi_list))
-            dis_map = torch.unsqueeze(torch.from_numpy(np.array(dis_list)), dim=1)
-
-            # inputs = input1 * input2_roi
-            inputs = input1 * dis_map
-            ###############################################################################################################
             inputs = MoveTensorsToDevice(inputs, device)
+            # outputs = MoveTensorsToDevice(outputs, device)
+
+            # inputs = MoveTensorsToDevice(inputs, device)
 
             preds2 = model(inputs)
+            preds2 = torch.softmax(preds2, dim=1)
             if isinstance(preds2, tuple):
                 preds2 = preds2[-1]
 
@@ -87,50 +74,8 @@ def ModelTest(model, model_folder, epoch, data_type='train'):
     np.save(os.path.join(result_folder, '{}_label.npy'.format(data_type)), np.array(label_list))
 
 
-def ModelTestWNet(model, model_folder, epoch, data_type='train'):
-    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
-    input_shape = (200, 200)
-    batch_size = 2
-
-    spliter = DataSpliter()
-    sub_list = spliter.LoadName(data_root + '/{}_name.csv'.format(data_type))
-
-    data = DataManager(sub_list=sub_list)
-    data.AddOne(Image2D(data_root + '/T2Slice', shape=input_shape))
-    data.AddOne(Image2D(data_root + '/RoiSlice', shape=input_shape), is_input=False)
-    data_loader = DataLoader(data, batch_size=batch_size, shuffle=False)
-
-    model = model.to(device)
-
-    model.load_state_dict(torch.load(model_folder + epoch))
-
-    pred1_list = []
-    pred2_list = []
-    label_list = []
-    model.eval()
-    for inputs, outputs in data_loader:
-
-        inputs = MoveTensorsToDevice(inputs, device)
-
-        preds1, preds2 = model(inputs, epoch=100)
-
-        pred1_list.extend(list(preds1.cpu().data.numpy()))
-        pred2_list.extend(list(preds2.cpu().data.numpy()))
-        label_list.extend(list(outputs.cpu().data.numpy()))
-
-
-    result_folder = os.path.join(model_folder, 'Result')
-    if not os.path.exists(os.path.join(model_folder, 'Result')):
-        os.mkdir(os.path.join(model_folder, 'Result'))
-
-
-    np.save(os.path.join(result_folder, '{}_preds1.npy'.format(data_type)), np.array(pred1_list))
-    np.save(os.path.join(result_folder, '{}_preds2.npy'.format(data_type)), np.array(pred2_list))
-    np.save(os.path.join(result_folder, '{}_label.npy'.format(data_type)), np.array(label_list))
-
-
 def ShowAtten(model_folder, data_type='train'):
-    from SSHProject.BasicTool.MeDIT.Normalize import Normalize01
+    from BasicTool.MeDIT.Normalize import Normalize01
     device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
     input_shape = (200, 200)
     batch_size = 1
@@ -267,50 +212,50 @@ def ShoweResult(model_folder, data_type='train', num_pred=1, save_path=r''):
 
             plt.figure(figsize=(12, 4))
 
-            plt.subplot(231)
+            plt.subplot(251)
             plt.axis('off')
             plt.imshow(label[index][0, ...], cmap='gray')
 
-            plt.subplot(232)
+            plt.subplot(252)
             plt.axis('off')
             plt.imshow(label[index][1, ...], cmap='gray')
 
-            plt.subplot(233)
+            plt.subplot(253)
             plt.axis('off')
             plt.imshow(label[index][2, ...], cmap='gray')
 
-            # plt.subplot(254)
-            # plt.axis('off')
-            # plt.imshow(label[index][3, ...], cmap='gray')
-            #
-            # plt.subplot(255)
-            # plt.axis('off')
-            # plt.imshow(label[index][4, ...], cmap='gray')
+            plt.subplot(254)
+            plt.axis('off')
+            plt.imshow(label[index][3, ...], cmap='gray')
 
-            plt.subplot(234)
+            plt.subplot(255)
+            plt.axis('off')
+            plt.imshow(label[index][4, ...], cmap='gray')
+
+            plt.subplot(256)
             plt.title('{:.3f}'.format(Dice(pred_index[0], label[index][0])))
             plt.axis('off')
             plt.imshow(pred[index][0, ...], cmap='gray')
 
-            plt.subplot(235)
+            plt.subplot(257)
             plt.title('{:.3f}'.format(Dice(pred_index[1], label[index][1])))
             plt.axis('off')
             plt.imshow(pred[index][1, ...], cmap='gray')
 
-            plt.subplot(236)
+            plt.subplot(258)
             plt.axis('off')
             plt.title('{:.3f}'.format(Dice(pred_index[2], label[index][2])))
             plt.imshow(pred[index][2, ...], cmap='gray')
 
-            # plt.subplot(259)
-            # plt.axis('off')
-            # plt.title('{:.3f}'.format(Dice(pred_index[3], label[index][3])))
-            # plt.imshow(pred[index][3, ...], cmap='gray')
-            #
-            # plt.subplot(2, 5, 10)
-            # plt.axis('off')
-            # plt.title('{:.3f}'.format(Dice(pred_index[4], label[index][4])))
-            # plt.imshow(pred[index][4, ...], cmap='gray')
+            plt.subplot(259)
+            plt.axis('off')
+            plt.title('{:.3f}'.format(Dice(pred_index[3], label[index][3])))
+            plt.imshow(pred[index][3, ...], cmap='gray')
+
+            plt.subplot(2, 5, 10)
+            plt.axis('off')
+            plt.title('{:.3f}'.format(Dice(pred_index[4], label[index][4])))
+            plt.imshow(pred[index][4, ...], cmap='gray')
             if save_path:
                 plt.savefig(os.path.join(save_path, 'test_{}.jpg'.format(index)))
                 plt.close()
@@ -393,36 +338,20 @@ if __name__ == '__main__':
     # t2_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice/T2Slice'
     data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice'
     t2_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice/T2Slice'
-    model_step1_pred = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/CaseResult'
+    # model_step1_pred = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/CaseResultDilate'
+    # model_step1_pred = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/DistanceMap/DisMap'
 
-    # '/78-0.247980.pt'
-    # '/111-1.942233.pt'
-    # '/98-1.975697.pt'
-    # '/45-0.469734.pt'
-    # '/76-2.254344.pt'
-    # '/58-0.229803.pt'
 
-    # model_path = model_root + '/UNet_bce_atten'
-
-    model_path = model_root + '/UNet_0311_step2_dis'
-    epoch = '/24--11.419896.pt'
+    model_path = model_root + '/UNet_0330_weightedloss'
+    epoch = '/13-2.679143.pt'
     model = UNet25D(n_channels=1, n_classes=5, bilinear=True, factor=2)
-    # model_path = model_root + '/UNet_atten'
-    # epoch = '/45--12.414073.pt'
-    # model = AttU_Net(1, 5, 2)
+
 
     ModelTest(model, model_path, epoch, 'train')
     ModelTest(model, model_path, epoch, 'val')
     ModelTest(model, model_path, epoch, 'test')
 
-    # model_path = model_root + '/TwoUNet_bce'
-    # epoch = '/61--12.721687.pt'
-    # model = TwoUNet(1, 5)
-    # ModelTestWNet(model, model_path, epoch, 'train')
-    # ModelTestWNet(model, model_path, epoch, 'val')
-    # ModelTestWNet(model, model_path, epoch, 'test')
-    #
-    # ShoweResult(model_path, data_type='test', num_pred=1, save_path=os.path.join(model_path, 'Image'))
+    ShoweResult(model_path, data_type='test', num_pred=1, save_path=os.path.join(model_path, 'Image'))
     # ShoweResult(model_path, data_type='train', num_pred=1)
 
 

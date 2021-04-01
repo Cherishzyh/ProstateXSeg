@@ -42,17 +42,20 @@ class Down(nn.Module):
 
 class Up(nn.Module):
     """Upscaling then double conv"""
-
+    #
+    # def __init__(self, in_channels1, in_channels2, out_channels, bilinear=True):
+    #     super().__init__()
+    #
+    #     # if bilinear, use the normal convolutions to reduce the number of channels
+    #     if bilinear:
+    #         self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+    #         self.conv = DoubleConv(in_channels1+in_channels2, out_channels, in_channels1 // 2)
+    #     else:
+    #         self.up = nn.ConvTranspose2d(in_channels1, in_channels1 // 2, kernel_size=2, stride=2)
+    #         self.conv = DoubleConv(in_channels1//2+in_channels2, out_channels, in_channels1 // 2)
+    ###################################################################################################################
     def __init__(self, in_channels, out_channels, bilinear=True):
         super().__init__()
-
-        # if bilinear, use the normal convolutions to reduce the number of channels
-        # if bilinear:
-        #     self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        #     self.conv = DoubleConv(in_channels1+in_channels2, out_channels, in_channels1 // 2)
-        # else:
-        #     self.up = nn.ConvTranspose2d(in_channels1, in_channels1 // 2, kernel_size=2, stride=2)
-        #     self.conv = DoubleConv(in_channels1//2+in_channels2, out_channels, in_channels1 // 2)
         if bilinear:
             self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
             self.conv = DoubleConv(in_channels, out_channels, in_channels // 2)
@@ -114,15 +117,19 @@ class Decoding(nn.Module):
             self.up2 = Up(filters * 8 * 2, filters * 4 // factor, bilinear)
             self.up3 = Up(filters * 4 * 2, filters * 2 // factor, bilinear)
             self.up4 = Up(filters * 2 * 2, filters, bilinear)
-        # else:
-        #     self.up1 = Up(filters * (4+8) * 3, filters * 8 // factor, bilinear)
-        #     self.up2 = Up(filters * 8 * 2, filters * 4 // factor, bilinear)
-        #     self.up3 = Up(filters * 4 * 2, filters * 2 // factor, bilinear)
-        #     self.up4 = Up(filters * 2 * 2, filters, bilinear)
+        else:
+            self.up1 = Up(filters * (4+8) * 3, filters * 8 // factor, bilinear)
+            self.up2 = Up(filters * 8 * 2, filters * 4 // factor, bilinear)
+            self.up3 = Up(filters * 4 * 2, filters * 2 // factor, bilinear)
+            self.up4 = Up(filters * 2 * 2, filters, bilinear)
+        ################################################################################################################
+
         # self.up1 = Up(filters * 16// factor * 3, filters * 8 * 3, filters * 8 // factor, False)
         # self.up2 = Up(filters * 8 // factor,     filters * 4 * 3, filters * 4 // factor, bilinear)
         # self.up3 = Up(filters * 4 // factor,     filters * 2 * 3, filters * 2 // factor, bilinear)
         # self.up4 = Up(filters * 2 // factor,     filters * 1 * 3, filters, bilinear)
+
+        ################################################################################################################
         self.outc = OutConv(filters, n_classes)
 
     def forward(self, encoding_result):
@@ -137,8 +144,6 @@ class Decoding(nn.Module):
         x3 = torch.cat([result1[2], result2[2], result3[2]], dim=1)
         x2 = torch.cat([result1[3], result2[3], result3[3]], dim=1)
         x1 = torch.cat([result1[4], result2[4], result3[4]], dim=1)
-
-
 
         x = self.up1(x5, x4)
         x = self.up2(x, x3)

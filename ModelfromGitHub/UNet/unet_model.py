@@ -53,7 +53,7 @@ class UNet25D(nn.Module):
         self.encoding2 = Encoding(n_channels, filters, factor=factor)
         self.encoding3 = Encoding(n_channels, filters, factor=factor)
 
-        self.decoding  = Decoding(n_classes, filters, factor=factor, bilinear=bilinear)
+        self.decoding = Decoding(n_classes, filters, factor=factor, bilinear=bilinear)
 
 
     def forward(self, x):
@@ -63,13 +63,14 @@ class UNet25D(nn.Module):
 
         logits = self.decoding([x1, x2, x3])
 
-        return torch.softmax(logits, dim=1)
+        # return torch.softmax(logits, dim=1)
+        return logits
 
 
 
 
 def test():
-    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model = UNet25D(n_channels=1, n_classes=5, bilinear=True, factor=2)
     model = model.to(device)
     print(model)
