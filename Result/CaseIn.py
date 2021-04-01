@@ -1,8 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
 
-from CnnTools.T4T.Utility.Data import *
-
+from SSHProject.CnnTools.T4T.Utility.Data import *
 
 from Statistics.Metric import Dice
 
@@ -11,8 +10,8 @@ class ProstateXSeg():
         self.input_shape = input_shape
 
     def CropData(self, data, crop_shape, center, is_roi=False, slice_num=1):
-        from BasicTool.MeDIT.ArrayProcess import ExtractPatch
-        from BasicTool.MeDIT.ArrayProcess import ExtractBlock
+        from SSHProject.BasicTool.MeDIT.ArrayProcess import ExtractPatch
+        from SSHProject.BasicTool.MeDIT.ArrayProcess import ExtractBlock
 
         # Crop
         if len(data.shape) == 2:
@@ -73,7 +72,7 @@ class ProstateXSeg():
         return np.array(roi_list, dtype=np.int)
 
     def Nii2NPY(self, case, data_path, des_path, slice_num=1, is_save=False):
-        from BasicTool.MeDIT.SaveAndLoad import LoadImage
+        from SSHProject.BasicTool.MeDIT.SaveAndLoad import LoadImage
 
         t2_path = os.path.join(data_path, 't2.nii')
         roi_path = os.path.join(data_path, 'roi.nii.gz')
@@ -182,8 +181,13 @@ class ProstateXSeg():
 if __name__ == '__main__':
 
     # from SegModel.UNet import UNet, UNet25D
+    from SegModel.MultiSeg import MultiSeg
+    from SegModel.MSUNet import MSUNet
+    from SegModel.WNet import WNet
+    from SegModel.AttenUnet import AttenUNet
     from ModelfromGitHub.UNet.unet_model import UNet25D
     from PreProcess.Nii2NPY import ROIOneHot
+    from SegModel.TwoUNet import TwoUNet
 
     # data_path = r'W:\Public Datasets\PROSTATEx_Seg\Seg'
 
@@ -201,7 +205,7 @@ if __name__ == '__main__':
         data_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OriginalData'
         model_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model'
 
-        model = UNet25D(n_channels=1, n_classes=5, bilinear=True, factor=2)
+        model = UNet25D(n_channels=1, n_classes=3, bilinear=True, factor=2)
 
         dice1_list, dice2_list, dice3_list, dice4_list, dice5_list = [], [], [], [], []
 
@@ -212,22 +216,16 @@ if __name__ == '__main__':
         for case in case_list:
             t2_arr, roi_arr = seg.Nii2NPY(case, os.path.join(data_path, case), r'', slice_num=3)
             # UNet
-            # 13-2.679143.pt
-            # 26-1.161448.pt   UNet_0330
             preds = seg.run(case, model,
-                            model_path=os.path.join(model_folder, 'UNet_0330_weightedloss'),
-                            weights_path='13-2.679143.pt',
+                            model_path=os.path.join(model_folder, 'UNet_0311_step1'),
+                            weights_path='18--11.511773.pt',
                             inputs=t2_arr,
                             outputs=roi_arr,
                             is_save=False)
             if isinstance(preds, tuple):
                 preds = preds[-1]
-            preds = torch.softmax(preds, dim=1)
             preds = torch.argmax(preds, dim=1).cpu().data.numpy()
             preds = ROIOneHot(preds)
-            # roi_arr = np.argmax(roi_arr, axis=1)
-            # roi_arr = np.clip(roi_arr, a_min=0, a_max=2)
-            # roi_arr = ROIOneHot(roi_arr, roi_class=[0, 1, 2])
 
             dice1_list.append(Dice(preds[:, 0, ...], roi_arr[:, 0, ...]))
             dice2_list.append(Dice(preds[:, 1, ...], roi_arr[:, 1, ...]))
@@ -238,10 +236,6 @@ if __name__ == '__main__':
         print('{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}'.format(sum(dice1_list) / len(dice1_list), sum(dice2_list) / len(dice2_list),
                                                               sum(dice3_list) / len(dice3_list), sum(dice4_list) / len(dice4_list),
                                                               sum(dice5_list) / len(dice5_list)))
-
-
-
-    case_test()
 
 
     def slice_test():
@@ -256,11 +250,11 @@ if __name__ == '__main__':
 
         dice1_list, dice2_list, dice3_list, dice4_list, dice5_list = [], [], [], [], []
 
-        df = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice', 'train_name.csv'))
+        # df = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice', 'train_name.csv'))
         # df = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice', 'val_name.csv'))
-        # df = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice', 'test_name.csv'))
+        df = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice', 'test_name.csv'))
         case_list = df.values.tolist()[0]
-        for index, case in enumerate(case_list):
+        for case in case_list:
             t2_arr, roi_arr = seg.NPY2NPY(case, data_path, n_class=3)
 
             if not isinstance(t2_arr, np.ndarray):
@@ -277,22 +271,24 @@ if __name__ == '__main__':
             preds = torch.argmax(preds, dim=1).cpu().data.numpy()
             preds = ROIOneHot(preds, roi_class=(0, 1, 2))
 
-            # plt.subplot(221)
-            # plt.imshow(t2_arr[0, 1, ...], cmap='gray')
-            # plt.contour(np.argmax(roi_arr, axis=1)[0, ...])
-            # plt.subplot(222)
-            # plt.imshow(preds[0, 0, ...], cmap='gray')
-            # # plt.contour(outputs_roi[index])
-            # plt.subplot(223)
-            # plt.imshow(preds[0, 1, ...], cmap='gray')
-            # # plt.contour(outputs_roi[index])
-            # plt.subplot(224)
-            # plt.imshow(preds[0, 2, ...], cmap='gray')
-            # # plt.contour(outputs_roi[index])
-            # plt.show()
+            plt.subplot(221)
+            plt.imshow(t2_arr[0, 1, ...], cmap='gray')
+            plt.contour(np.argmax(roi_arr, axis=1)[0, ...])
+            plt.subplot(222)
+            plt.imshow(preds[0, 0, ...], cmap='gray')
+            # plt.contour(outputs_roi[index])
+            plt.subplot(223)
+            plt.imshow(preds[0, 1, ...], cmap='gray')
+            # plt.contour(outputs_roi[index])
+            plt.subplot(224)
+            plt.imshow(preds[0, 2, ...], cmap='gray')
+            # plt.contour(outputs_roi[index])
+            plt.show()
 
-            # print('#############   {} / 1727  #############'.format(index + 1))
-            np.save(os.path.join(result_folder, '{}.npy'.format(case)), np.squeeze(preds))
+
+
+
+        #     np.save(os.path.join(result_folder, '{}.npy'.format(case)), np.squeeze(preds))
         #
         #     dice1_list.append(Dice(preds[:, 0, ...], roi_arr[:, 0, ...]))
         #     dice2_list.append(Dice(preds[:, 1, ...], roi_arr[:, 1, ...]))
@@ -300,7 +296,7 @@ if __name__ == '__main__':
         #
         # print('{:.3f}, {:.3f}, {:.3f}'.format(sum(dice1_list) / len(dice1_list), sum(dice2_list) / len(dice2_list),
         #                                       sum(dice3_list) / len(dice3_list)))
-    # slice_test()
+    slice_test()
 
 
     # plt.subplot(221)

@@ -14,11 +14,11 @@ from SSHProject.CnnTools.T4T.Utility.Data import *
 from SSHProject.CnnTools.T4T.Utility.CallBacks import EarlyStopping
 from SSHProject.CnnTools.T4T.Utility.Initial import HeWeightInit
 
-# from SegModel.UNet import UNet, UNet25D
+from SegModel.UNet import UNet, UNet25D
 from SegModel.MultiSeg import MultiSegPlus
 from SegModel.AttenUnet import AttenUNet
 from Statistics.Loss import DiceLoss
-from ModelfromGitHub.UNet.unet_model import UNet, UNet25D
+from PreProcess.Nii2NPY import ROIOneHot
 
 
 def ClearGraphPath(graph_path):
@@ -45,7 +45,7 @@ def Train():
     input_shape = (200, 200)
     total_epoch = 10000
     batch_size = 24
-    model_folder = MakeFolder(model_root + '/UNet_0311_step1')
+    model_folder = MakeFolder(model_root + '/UNet_bce_labeled')
 
     ClearGraphPath(model_folder)
 
@@ -72,13 +72,12 @@ def Train():
     train_loader, train_batches = _GetLoader(train_list, param_config, input_shape, batch_size, True)
     val_loader, val_batches = _GetLoader(val_list, param_config, input_shape, batch_size, True)
 
-    model = UNet25D(n_channels=1, n_classes=3, bilinear=True, factor=2).to(device)
+    model = UNet(1, 5).to(device)
     model.apply(HeWeightInit)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    criterion1 = torch.nn.NLLLoss()
-    criterion2 = DiceLoss()
-
+    # criterion1 = torch.nn.NLLLoss()
+    criterion = torch.nn.BCELoss()
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.5,
                                                            verbose=True)
     early_stopping = EarlyStopping(store_path=str(model_folder / '{}-{:.6f}.pt'), patience=50, verbose=True)
@@ -89,20 +88,36 @@ def Train():
 
         model.train()
         for ind, (inputs, outputs) in enumerate(train_loader):
-            #
-            other_roi = torch.unsqueeze(torch.sum(outputs[:, 2:, ...], dim=1), dim=1)
+            optimizer.zero_grad()
 
-            new_roi = torch.cat([outputs[:, 0:1, ...], outputs[:, 1:2, ...], other_roi], dim=1)
-            outputs_roi = torch.argmax(new_roi, dim=1)
+            outputs_roi = ROIOneHot(torch.argmax(outputs, dim=1).numpy())
 
             inputs = MoveTensorsToDevice(inputs, device)
-            outputs_roi = MoveTensorsToDevice(outputs_roi, device)
-            new_roi = MoveTensorsToDevice(new_roi, device)
+            outputs_roi = MoveTensorsToDevice(torch.from_numpy(outputs_roi), device)
 
             preds = model(inputs)
-            loss = criterion1(preds, outputs_roi.long()) + criterion2(preds, new_roi)
 
-            optimizer.zero_grad()
+            # BG
+            loss_bg = criterion(preds[:, 0, ...], outputs_roi[:, 0, ...].float())
+            # PZ
+            loss_pz = criterion(preds[:, 1, ...], outputs_roi[:, 1, ...].float())
+            # CG
+            loss_cg = criterion(preds[:, 2, ...], outputs_roi[:, 2, ...].float())
+            # U
+            u_index = np.nonzero(torch.sum(outputs_roi[:, 3, ...], dim=(1, 2)).cpu().data.numpy())
+            loss_u = criterion(preds[u_index, 3, ...], outputs_roi[u_index, 3, ...].float())
+            # AS
+            as_index = np.nonzero(torch.sum(outputs_roi[:, 4, ...], dim=(1, 2)).cpu().data.numpy())
+            loss_as = criterion(preds[as_index, 4, ...], outputs_roi[as_index, 4, ...].float())
+            if torch.isnan(loss_u):
+                loss_u = torch.tensor(0., device=device, requires_grad=True)
+            if torch.isnan(loss_as):
+                loss_as = torch.tensor(0., device=device, requires_grad=True)
+
+            # print('train', loss_u.item(), loss_as.item())
+
+            loss = loss_bg + loss_pz + loss_cg + loss_u + loss_as
+
             loss.backward()
             optimizer.step()
 
@@ -111,17 +126,33 @@ def Train():
         model.eval()
         with torch.no_grad():
             for ind, (inputs, outputs) in enumerate(val_loader):
-                other_roi = torch.unsqueeze(torch.sum(outputs[:, 2:, ...], dim=1), dim=1)
-
-                new_roi = torch.cat([outputs[:, 0:1, ...], outputs[:, 1:2, ...], other_roi], dim=1)
-                outputs_roi = torch.argmax(new_roi, dim=1)
+                outputs_roi = ROIOneHot(torch.argmax(outputs, dim=1).numpy())
 
                 inputs = MoveTensorsToDevice(inputs, device)
-                outputs_roi = MoveTensorsToDevice(outputs_roi, device)
-                new_roi = MoveTensorsToDevice(new_roi, device)
+                outputs_roi = MoveTensorsToDevice(torch.from_numpy(outputs_roi), device)
 
                 preds = model(inputs)
-                loss = criterion1(preds, outputs_roi.long()) + criterion2(preds, new_roi)
+                loss_bg = criterion(preds[:, 0, ...], outputs_roi[:, 0, ...].float())
+                # PZ
+                loss_pz = criterion(preds[:, 1, ...], outputs_roi[:, 1, ...].float())
+                # CG
+                loss_cg = criterion(preds[:, 2, ...], outputs_roi[:, 2, ...].float())
+                # U
+                u_index = np.nonzero(torch.sum(outputs_roi[:, 3, ...], dim=(1, 2)).cpu().data.numpy())
+
+                loss_u = criterion(preds[u_index, 3, ...], outputs_roi[u_index, 3, ...].float())
+                # AS
+                as_index = np.nonzero(torch.sum(outputs_roi[:, 4, ...], dim=(1, 2)).cpu().data.numpy())
+                loss_as = criterion(preds[as_index, 4, ...], outputs_roi[as_index, 4, ...].float())
+
+                if torch.isnan(loss_u):
+                    loss_u = torch.tensor(0., device=device, requires_grad=True)
+                if torch.isnan(loss_as):
+                    loss_as = torch.tensor(0., device=device, requires_grad=True)
+
+                # print('val', loss_u.item(), loss_as.item())
+                #
+                loss = loss_bg + loss_pz + loss_cg + loss_u + loss_as
 
                 val_loss += loss.item()
 
@@ -133,6 +164,13 @@ def Train():
         writer.add_scalars('Loss',
                            {'train_loss': train_loss / train_batches,
                             'val_loss': val_loss / val_batches}, epoch + 1)
+        # writer.add_scalars('Loss1',
+        #                    {'train_loss1': train_loss1 / train_batches,
+        #                     'val_loss1': val_loss1 / val_batches}, epoch + 1)
+        # writer.add_scalars('Loss2',
+        #                    {'train_loss2': train_loss2 / train_batches,
+        #                     'val_loss2': val_loss2 / val_batches}, epoch + 1)
+
 
         print('Epoch {}: loss: {:.3f}, val-loss: {:.3f}'.format(epoch + 1, train_loss / train_batches, val_loss / val_batches))
         scheduler.step(val_loss)
@@ -168,9 +206,9 @@ def CheckInput():
         ElasticTransform.name: ['elastic', 1, 0.1, 256]
     }
 
-    train_df = pd.read_csv(os.path.join(data_root, 'train_name.csv'))
+    train_df = pd.read_csv(os.path.join(data_root, 'train_name_left.csv'))
     train_list = train_df.values.tolist()[0]
-    val_df = pd.read_csv(os.path.join(data_root, 'val_name.csv'))
+    val_df = pd.read_csv(os.path.join(data_root, 'val_name_left.csv'))
     val_list = val_df.values.tolist()[0]
 
     train_loader, train_batches = _GetLoader(train_list, param_config, input_shape, batch_size, True)
@@ -187,6 +225,6 @@ def CheckInput():
 
 if __name__ == '__main__':
     model_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model'
-    data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice'
+    data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice'
     Train()
     # CheckInput()

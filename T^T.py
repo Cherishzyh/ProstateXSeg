@@ -7,9 +7,6 @@ import SimpleITK as sitk
 import torch.nn.functional as F
 
 # from SSHProject.BasicTool.MeDIT.ArrayProcess import ExtractBlock
-from BasicTool.MeDIT.SaveAndLoad import LoadImage
-from BasicTool.MeDIT.Normalize import Normalize01
-from BasicTool.MeDIT.Visualization import Imshow3DArray
 
 def CheckDataShape():
     data_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice/RoiSlice'
@@ -22,8 +19,10 @@ def CheckDataShape():
 # CheckDataShape()
 
 ########################################################################################################################
-
 def ImshowData(data_path):
+    from BasicTool.MeDIT.Visualization import Imshow3DArray
+    from BasicTool.MeDIT.Normalize import Normalize01
+    from BasicTool.MeDIT.SaveAndLoad import LoadImage
 
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
@@ -141,130 +140,11 @@ def TestN4ITK():
 
 ########################################################################################################################
 
-def Squeeze():
+def Unsqueeze():
     data_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/CaseResult'
     for case in os.listdir(data_path):
         pred = np.load(os.path.join(data_path, case))
         if np.ndim(pred) == 4:
             pred = np.squeeze(pred)
             np.save(os.path.join(data_path, case), pred)
-# Squeeze()
-
-########################################################################################################################
-def UnSqueeze():
-    data_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice/RoiSlice_NoOneHot'
-    save_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice/RoiSliceNoOneHot'
-    for index, case in enumerate(os.listdir(data_path)):
-        pred = np.load(os.path.join(data_path, case))
-        pred = pred[np.newaxis, ...]
-        print('#############   {} / 1727  #############'.format(index+1))
-        np.save(os.path.join(save_path, case), pred)
-
-# UnSqueeze()
-
-
-########################################################################################################################
-def KeepLargestROI():
-    from PreProcess.DistanceMapNumpy import KeepLargest
-    data_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/CaseResult'
-    for index, case in enumerate(os.listdir(data_path)):
-        pred = np.load(os.path.join(data_path, case))
-        pred = np.argmax(pred, axis=0)
-        _, n_labels, new_pred = KeepLargest(pred)
-        # print(n_labels)
-        # plt.imshow(pred[0], cmap='gray')
-        # plt.show()
-
-        print('#############   {} / 1727  #############'.format(index+1))
-        np.save(os.path.join(data_path, case), new_pred[np.newaxis, ...])
-
-# KeepLargestROI()
-
-########################################################################################################################
-
-def ChangeZero2One():
-    # data_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/DistanceMap/DisMap'
-    data_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/CaseResult'
-    for index, case in enumerate(os.listdir(data_path)):
-        pred = np.load(os.path.join(data_path, case))
-        if (pred == 0).all():
-            # pred = np.ones_like(pred)
-            # np.save(os.path.join(data_path, case), pred)
-            print('#############{}:   {} / 1727  #############'.format(case, index+1))
-# ChangeZero2One()
-
-
-def Dilate():
-    from scipy.ndimage import binary_dilation
-    from SSHProject.BasicTool.MeDIT.Normalize import NormalizeZ
-    data_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/CaseResult'
-    save_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/CaseResultDilate'
-    for index, case in enumerate(os.listdir(data_path)):
-        pred = np.squeeze(np.load(os.path.join(data_path, case)))
-        dilate_pred = binary_dilation(pred, structure=np.ones((11, 11)))
-        # diff = dilate_pred - pred
-        # plt.subplot(131)
-        # plt.imshow(pred, cmap='gray')
-        # plt.subplot(132)
-        # plt.imshow(dilate_pred, cmap='gray')
-        # plt.subplot(133)
-        # plt.imshow(diff, cmap='gray')
-        # plt.show()
-        np.save(os.path.join(save_path, case), dilate_pred[np.newaxis, ...])
-        print('#############{}:   {} / 1727  #############'.format(case, index + 1))
-# Dilate()
-
-
-def AddLabel():
-    feature_csv_path = r'C:\Users\ZhangYihong\Desktop\test\Prostate\features_of_prostate.csv'
-    label_csv_path = r'C:\Users\ZhangYihong\Desktop\test\ece.csv'
-    feature_df = pd.read_csv(feature_csv_path, index_col='CaseName')
-    label_df = pd.read_csv(label_csv_path, index_col='case')
-    label_list = []
-    case_list = []
-    for case in feature_df.index:
-
-        label = label_df.loc[case].values
-        label_list.append(int(label))
-        case_list.append(case)
-
-    df = pd.DataFrame({'label': label_list}, index=case_list)
-    feature_df.insert(loc=0, column='label', value=df)
-    feature_df.to_csv(r'C:\Users\ZhangYihong\Desktop\test\Prostate\features_with_label.csv')
-# AddLabel()
-
-
-def GenerateCSV():
-    path = r'X:\StoreFormatData\ProstateCancerECE\ECE-ROI.csv'
-    feature_df = pd.read_csv(path, index_col='case', encoding='gbk')
-    case_list = []
-    label_list = []
-    for case in feature_df.index:
-        case_list.append(case)
-        label_list.append(feature_df.loc[case]['pECE'])
-
-    new_feature = pd.DataFrame({'case': case_list, 'label': label_list})
-    new_feature.to_csv(r'C:\Users\ZhangYihong\Desktop\test\ece.csv', index=False)
-# GenerateCSV()
-
-
-def LabelStatistic():
-    pass
-
-
-def Show():
-    folder = r'Z:\PM'
-    for index, case in enumerate(os.listdir(folder)):
-        case_folder = os.path.join(folder, case)
-        t2_path = os.path.join(case_folder, 't2.nii')
-        roi_path = os.path.join(case_folder, 'ProstateX_UNet.nii.gz')
-        _, t2, _ = LoadImage(t2_path, is_show_info=True)
-        _, roi, _ = LoadImage(roi_path, is_show_info=True)
-
-        roi_1 = (roi == 1).astype(int)
-        roi_2 = (roi == 2).astype(int)
-        roi_3 = (roi == 3).astype(int)
-        roi_4 = (roi == 4).astype(int)
-
-        Imshow3DArray(Normalize01(t2), roi=[Normalize01(roi_1), Normalize01(roi_2), Normalize01(roi_3), Normalize01(roi_4)])
-Show()
+Unsqueeze()

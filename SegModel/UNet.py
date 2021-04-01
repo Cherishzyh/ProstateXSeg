@@ -26,62 +26,6 @@ class DoubleConv(nn.Module):
         return out
 
 
-# class UNet(nn.Module):
-#     def __init__(self, in_channels, out_channels, filters=32):
-#         super(UNet, self).__init__()
-#
-#         self.pool = nn.MaxPool2d(2)
-#
-#         self.conv1 = DoubleConv(in_channels, filters)
-#         self.conv2 = DoubleConv(filters, filters*2)
-#         self.conv3 = DoubleConv(filters*2, filters*4)
-#         self.conv4 = DoubleConv(filters*4, filters*8)
-#         self.conv5 = DoubleConv(filters*8, filters*16)
-#
-#         self.up5 = nn.ConvTranspose2d(filters*16, filters*8, 2, stride=2)
-#         self.conv6 = DoubleConv(filters*16, filters*4)
-#         self.up6 = nn.ConvTranspose2d(filters*8, filters*4, 2, stride=2)
-#         self.conv7 = DoubleConv(filters*8, filters*4)
-#         self.up7 = nn.ConvTranspose2d(filters*4, filters*2, 2, stride=2)
-#         self.conv8 = DoubleConv(filters*4, filters*2)
-#         self.up8 = nn.ConvTranspose2d(filters*2, filters, 2, stride=2)
-#         self.conv9 = DoubleConv(filters*2, filters)
-#         self.conv10 = nn.Conv2d(filters, out_channels, 1)
-#
-#     def forward(self, x):
-#         x1 = self.conv1(x)
-#
-#         x1 = self.pool(x1)
-#         x2 = self.conv2(x1)
-#
-#         x2 = self.pool(x2)
-#         x3 = self.conv3(x2)
-#
-#         x3 = self.pool(x3)
-#         x4 = self.conv4(x3)
-#
-#         x4 = self.pool(x4)
-#         x5 = self.conv5(x4)
-#
-#         up_5 = self.up5(x5)
-#         merge1 = torch.cat((up_5, x4), dim=1)
-#         x6 = self.conv6(merge1)
-#
-#         up_6 = self.up6(x6)
-#         merge2 = torch.cat((up_6, x3), dim=1)
-#         x5 = self.conv7(merge2)
-#
-#         up_7 = self.up7(x5)
-#         merge3 = torch.cat((up_7, x2), dim=1)
-#         x7 = self.conv8(merge3)
-#
-#         up_8 = self.up8(x7)
-#         merge4 = torch.cat((up_8, x1), dim=1)
-#         x8 = self.conv9(merge4)
-#         x9 = self.conv10(x8)
-#         return torch.softmax(x9, dim=1)
-
-
 class UNet(nn.Module):
     def __init__(self, in_channels, out_channels, filters=32):
         super(UNet, self).__init__()
@@ -92,7 +36,10 @@ class UNet(nn.Module):
         self.conv2 = DoubleConv(filters, filters*2)
         self.conv3 = DoubleConv(filters*2, filters*4)
         self.conv4 = DoubleConv(filters*4, filters*8)
+        self.conv5 = DoubleConv(filters*8, filters*16)
 
+        self.up5 = nn.ConvTranspose2d(filters*16, filters*8, 2, stride=2)
+        self.conv6 = DoubleConv(filters*16, filters*4)
         self.up6 = nn.ConvTranspose2d(filters*8, filters*4, 2, stride=2)
         self.conv7 = DoubleConv(filters*8, filters*4)
         self.up7 = nn.ConvTranspose2d(filters*4, filters*2, 2, stride=2)
@@ -104,16 +51,23 @@ class UNet(nn.Module):
     def forward(self, x):
         x1 = self.conv1(x)
 
-        x2 = self.pool(x1)
-        x2 = self.conv2(x2)
+        x1 = self.pool(x1)
+        x2 = self.conv2(x1)
 
-        x3 = self.pool(x2)
-        x3 = self.conv3(x3)
+        x2 = self.pool(x2)
+        x3 = self.conv3(x2)
 
-        x4 = self.pool(x3)
-        x4 = self.conv4(x4)
+        x3 = self.pool(x3)
+        x4 = self.conv4(x3)
 
-        up_6 = self.up6(x4)
+        x4 = self.pool(x4)
+        x5 = self.conv5(x4)
+
+        up_5 = self.up5(x5)
+        merge1 = torch.cat((up_5, x4), dim=1)
+        x6 = self.conv6(merge1)
+
+        up_6 = self.up6(x6)
         merge2 = torch.cat((up_6, x3), dim=1)
         x5 = self.conv7(merge2)
 
@@ -125,7 +79,7 @@ class UNet(nn.Module):
         merge4 = torch.cat((up_8, x1), dim=1)
         x8 = self.conv9(merge4)
         x9 = self.conv10(x8)
-        return torch.sigmoid(x9)
+        return torch.softmax(x9, dim=1)
 
 
 class UNet25D(nn.Module):
@@ -209,13 +163,14 @@ class UNet25D(nn.Module):
 
 def test():
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model = UNet(in_channels=1, out_channels=2)
-    # model = UNet25D(in_channels=1, out_channels=5)
+    # model = UNet(in_channels=3, out_channels=5)
+    model = UNet25D(in_channels=1, out_channels=5)
     model = model.to(device)
     print(model)
-    inputs = torch.randn(1, 1, 184, 184).to(device)
+    inputs = torch.randn(1, 3, 200, 200).to(device)
     prediction = model(inputs)
     print(prediction.shape)
+
 
 
 if __name__ == '__main__':
