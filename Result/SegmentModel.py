@@ -1,5 +1,8 @@
-import numpy as np
 import os
+import cv2
+import numpy as np
+from copy import deepcopy
+
 from scipy import ndimage
 import SimpleITK as sitk
 import scipy.signal as signal
@@ -11,18 +14,21 @@ from BasicTool.MeDIT.ImageProcess import GetDataFromSimpleITK, GetImageFromArray
 from BasicTool.MeDIT.Normalize import NormalizeForTorch
 from BasicTool.MeDIT.SaveAndLoad import SaveNiiImage, LoadImage
 from BasicTool.MeDIT.ImageProcess import ReformatAxis
+from BasicTool.MeDIT.Visualization import FlattenAllSlices
+from BasicTool.MeDIT.ArrayProcess import Crop2DArray
 
 from Result.ConfigInterpretor import ConfigInterpretor, BaseImageOutModel
+
 
 class ProstatePzCgSegmentationInput_3(BaseImageOutModel):
     def __init__(self):
         super(ProstatePzCgSegmentationInput_3, self).__init__()
         self._image_preparer = ConfigInterpretor()
 
-    def __KeepLargest(self, mask):
+    def __KeepLargest(self, mask, class_num=3):
         new_mask = np.zeros(mask.shape)
         if mask.max() != 0:
-            for position in range(1, 3):
+            for position in range(1, class_num):
                 if not np.any(mask == position):
                     continue
                 temp_mask = (mask == position).astype(int)
@@ -65,22 +71,130 @@ class ProstatePzCgSegmentationInput_3(BaseImageOutModel):
                                axis=-1)
         return preds
 
+    def Rotate2d(self, data, param):
+        assert len(data.shape) == 2
+        row, col = data.shape
+        alpha = np.cos(param['theta'] / 180 * np.pi)
+        beta = np.sin(param['theta'] / 180 * np.pi)
 
-    def Run(self, image, store_folder=''):
+        matrix = np.array([
+            [alpha, beta, (1 - alpha) * (col // 2) - beta * (row // 2)],
+            [-beta, alpha, beta * (col // 2) + (1 - alpha) * (row // 2)]
+        ])
+        return cv2.warpAffine(data, matrix, (col, row), flags=cv2.INTER_LINEAR + cv2.WARP_FILL_OUTLIERS)
+
+    def Rotate3d(self, data, param):
+        assert len(data.shape) == 3
+        rotate_data = []
+        row, col, slice = data.shape
+        if min(row, col, slice) == slice:
+            for idx in range(slice):
+                rotate_data.append(self.Rotate2d(data[:, :, idx], param))
+            result = np.transpose(np.array(rotate_data), axes=(1, 2, 0))
+        elif min(row, col, slice) == row:
+            slice, row, col = data.shape
+            for idx in range(slice):
+                rotate_data.append(self.Rotate2d(data[idx, ...], param))
+            result = np.array(rotate_data)
+        else:
+            result = None
+
+        return result
+
+    def Rotate4d(self, data, param):
+        assert len(data.shape) == 4
+        rotate_data = []
+        slice, channel, row, col = data.shape
+
+        for idx in range(channel):
+            rotate_data.append(self.Rotate3d(data[:, idx, :, :], param))
+        result = np.transpose(np.array(rotate_data), axes=(1, 0, 2, 3))
+        return result
+
+    def Zoom2d(self, data, param):
+        assert len(data.shape) == 2
+        result = cv2.resize(data, None, fx=param['vertical_zoom'], fy=param['horizontal_zoom'],
+                            interpolation=cv2.INTER_LINEAR)
+        result = Crop2DArray(result, data.shape)
+        return result
+
+    def Zoom3d(self, data, param):
+        assert len(data.shape) == 3
+        zoom_data = []
+        row, col, slice = data.shape
+        if min(row, col, slice) == slice:
+            for idx in range(slice):
+                zoom_data.append(self.Zoom2d(data[:, :, idx], param))
+            result = np.transpose(np.array(zoom_data), axes=(1, 2, 0))
+        elif min(row, col, slice) == row:
+            slice, row, col = data.shape
+            for idx in range(slice):
+                zoom_data.append(self.Zoom2d(data[idx, ...], param))
+            result = np.array(zoom_data)
+        else:
+            result = None
+
+        return result
+
+    def Zoom4d(self, data, param):
+        assert len(data.shape) == 4
+        zoom_data = []
+        slice, channel, row, col = data.shape
+
+        for idx in range(channel):
+            zoom_data.append(self.Zoom3d(data[:, idx, :, :], param))
+        result = np.transpose(np.array(zoom_data), axes=(1, 0, 2, 3))
+        return result
+
+    def Flip(self, data, param):
+        result = deepcopy(data)
+        if len(result.shape) == 2:
+            if param['horizontal_flip']:
+                result = np.flip(result, axis=1)
+            if param['vertical_flip']:
+                result = np.flip(result, axis=0)
+        if len(result.shape) == 3:
+            if min(result.shape) == result.shape[0]:
+                if param['horizontal_flip']:
+                    result = np.flip(result, axis=2)
+                if param['vertical_flip']:
+                    result = np.flip(result, axis=1)
+            elif min(result.shape) == result.shape[-1]:
+                if param['horizontal_flip']:
+                    result = np.flip(result, axis=1)
+                if param['vertical_flip']:
+                    result = np.flip(result, axis=0)
+        return result
+
+    def Flip4d(self, data, param):
+        assert len(data.shape) == 4
+        # result = deepcopy(data)
+        flip_data = []
+        slice, channel, row, col = data.shape
+
+        for idx in range(channel):
+            flip_data.append(self.Flip(data[:, idx, :, :], param))
+        result = np.transpose(np.array(flip_data), axes=(1, 0, 2, 3))
+        return result
+
+    def Run(self, image, param, classnum, store_folder=''):
         ref = ReformatAxis()
         if isinstance(image, str):
             image = sitk.ReadImage(image)
 
         resolution = image.GetSpacing()
 
-        # data1 = ref.Run(image)
-        data = sitk.GetArrayFromImage(image)
-        data = data.transpose(1, 2, 0)
-        # flip_log = [0, 0, 0]
-        # data, _ = GetDataFromSimpleITK(image, dtype=np.float32)
+        raw_data = ref.Run(image)
+        # data = raw_data
+        ################################################################################################################
 
+        # raw_data = self.Flip(raw_data, param)
+        # raw_data = self.Zoom3d(raw_data,  param)
+        # raw_data = self.Rotate3d(raw_data,  param)
+
+        ################################################################################################################
         # Preprocess Data
-        data = self._config.CropDataShape(data, resolution)
+        data = self._config.CropDataShape(raw_data, resolution)
         input_list = self.TransOneDataFor2_5DModel(data)
 
         with torch.no_grad():
@@ -91,57 +205,74 @@ class ProstatePzCgSegmentationInput_3(BaseImageOutModel):
             preds_list = self._model(inputs)
 
         pred = preds_list.cpu().data.numpy()
+        pred = np.concatenate([np.zeros(shape=(1, pred.shape[1], pred.shape[2], pred.shape[3])),
+                               pred,
+                               np.zeros(shape=(1, pred.shape[1], pred.shape[2], pred.shape[3]))], axis=0)
+        ################################################################################################################
+        # oppo_horizontal_flip_param = param['horizontal_flip']
+        # oppo_vertical_flip_param = param['vertical_flip']
+        #
+        # oppo_horizontal_zoom_param = 1. / param['horizontal_zoom']
+        # oppo_vertical_zoom = 1. / param['vertical_zoom']
+        #
+        # oppo_theta_param = 0 - param['theta']
+        #
+        # oppo_param = {'horizontal_flip': oppo_horizontal_flip_param,
+        #               'vertical_flip': oppo_vertical_flip_param,
+        #               'horizontal_zoom': oppo_horizontal_zoom_param,
+        #               'vertical_zoom': oppo_vertical_zoom,
+        #               'theta': oppo_theta_param}
+        #
+        # pred = self.Rotate4d(pred, oppo_param)
+        # pred = self.Zoom4d(pred, oppo_param)
+        # pred = self.Flip4d(pred, oppo_param)
+
+        ################################################################################################################
+
+        # np.save(os.path.join(store_folder, 'prediction_{}.npy'.format(classnum)), pred)
+        # np.save(os.path.join(store_folder, 't2.npy'), data.transpose(2, 0, 1))
+        # print()
         pred = np.argmax(pred, axis=1)
 
         pred = self.invTransDataFor2_5DModel(pred)
 
         pred = self._config.RecoverDataShape(pred, resolution)
-        # pred = self.__FilterResult(pred)
-
-
 
         if pred.max() > 0:
-            new_pred = self.__KeepLargest(pred.astype(int))
+            new_pred = self.__KeepLargest(pred.astype(int), class_num=5)
         else:
             new_pred = np.zeros_like(pred)
 
-
-        # mask_image = ref.BackToImage(new_pred)
-        new_pred = new_pred.transpose(2, 1, 0)
-        mask_image = sitk.GetImageFromArray(new_pred)
-        mask_image.SetDirection(image.GetDirection())
-        mask_image.SetSpacing(image.GetSpacing())
-        mask_image.SetOrigin(image.GetOrigin())
-        # mask_image = GetImageFromArrayByImage(new_pred, image, flip_log=flip_log)
+        mask_image = ref.BackToImage(new_pred)
         if store_folder:
             if os.path.isdir(store_folder):
                 store_folder = os.path.join(store_folder, '{}.nii.gz'.format(self._config.GetName()))
             SaveNiiImage(store_folder, mask_image)
 
         return new_pred, mask_image
+        # return 0, 0
+
 
 if __name__ == '__main__':
     from MeDIT.UsualUse import *
-    segmentor = ProstatePzCgSegmentationInput_3()
-    segmentor.LoadConfigAndModel(r'/home/zhangyihong/Documents/ProstateX')
-
     from pathlib import Path
-    root_folder = Path(r'/home/zhangyihong/Documents/PM')
-    for case in sorted(root_folder.iterdir()):
-        # if case.name < '2019-CA-formal-CHANG XIAN YUN':
-        #     continue
-        print(case.name)
-        # image, _, show_data = LoadImage(str(case / 't2.nii'))
-        image = sitk.ReadImage(str(case / 't2.nii'))
-        mask, mask_image = segmentor.Run(image, store_folder=os.path.join(r'/home/zhangyihong/Documents/ProstateX/test', str(case)))
-        break
+    segmentor = ProstatePzCgSegmentationInput_3()
+    segmentor.LoadConfigAndModel(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/Config')
+    root_folder = Path(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/external/Prostate301_normal')
 
-        # _, _, roi = LoadNiiData(str(case / 'merge_pz1_cg2.nii'), dtype=int)
-        # Imshow3DArray(Normalize01(show_data), roi=[
-        #     (roi == 1).astype(int),
-        #     (mask == 1).astype(int),
-        #     (roi == 2).astype(int),
-        #     (mask == 2).astype(int)
-        # ])
+    # classnum = 17
+    # param = {'horizontal_flip': False, 'vertical_flip': False, 'horizontal_zoom': 1, 'vertical_zoom': 1, 'theta': 10}
+
+    for case in sorted(root_folder.iterdir()):
+        print(case.name)
+        if not os.path.exists(str(case / 't2.nii')):
+            print('no t2')
+            continue
+
+        image, _, show_data = LoadImage(str(case / 't2.nii'))
+        # mask, mask_image = segmentor.Run(image, param, classnum, store_folder=os.path.join(root_folder, str(case)))
+        mask, mask_image = segmentor.Run(image, store_folder=os.path.join(root_folder, str(case)))
+
+
 
 

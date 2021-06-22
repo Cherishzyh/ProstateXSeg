@@ -247,7 +247,7 @@ class ConfigInterpretor:
 class BaseImageOutModel():
     def __init__(self):
         self._model = None
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         self._config = ConfigInterpretor()
 
     def LoadConfigAndModel(self, fold_path):
@@ -263,11 +263,10 @@ class BaseImageOutModel():
         sys.path.append(fold_path)
         from ModelfromGitHub.UNet.unet_model import UNet25D
 
-
         self._model = UNet25D(n_channels=1, n_classes=5, bilinear=True, factor=2)
         self._model.to(self.device)
         # self._model.load_state_dict(torch.load(r'Z:\ProstateX\26-1.161448.pt')['state_dict'])
-        self._model.load_state_dict(torch.load(r'/home/zhangyihong/Documents/ProstateX/26-1.161448.pt', map_location='cuda:0'))
+        self._model.load_state_dict(torch.load(os.path.join(fold_path, '26-1.161448.pt'), map_location='cuda:0'))
         self._model.eval()
 
 

@@ -1,15 +1,17 @@
 import os
 import torch
+import shutil
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import SimpleITK as sitk
 import torch.nn.functional as F
 
-# from SSHProject.BasicTool.MeDIT.ArrayProcess import ExtractBlock
+from BasicTool.MeDIT.ArrayProcess import ExtractBlock
 from BasicTool.MeDIT.SaveAndLoad import LoadImage
 from BasicTool.MeDIT.Normalize import Normalize01
 from BasicTool.MeDIT.Visualization import Imshow3DArray
+
 
 def CheckDataShape():
     data_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice/RoiSlice'
@@ -22,6 +24,7 @@ def CheckDataShape():
 # CheckDataShape()
 
 ########################################################################################################################
+
 
 def ImshowData(data_path):
 
@@ -151,6 +154,8 @@ def Squeeze():
 # Squeeze()
 
 ########################################################################################################################
+
+
 def UnSqueeze():
     data_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice/RoiSlice_NoOneHot'
     save_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice/RoiSliceNoOneHot'
@@ -164,6 +169,8 @@ def UnSqueeze():
 
 
 ########################################################################################################################
+
+
 def KeepLargestROI():
     from PreProcess.DistanceMapNumpy import KeepLargest
     data_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/CaseResult'
@@ -181,6 +188,7 @@ def KeepLargestROI():
 # KeepLargestROI()
 
 ########################################################################################################################
+
 
 def ChangeZero2One():
     # data_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet_0311_step1/DistanceMap/DisMap'
@@ -215,51 +223,16 @@ def Dilate():
 # Dilate()
 
 
-def AddLabel():
-    feature_csv_path = r'C:\Users\ZhangYihong\Desktop\test\Prostate\features_of_prostate.csv'
-    label_csv_path = r'C:\Users\ZhangYihong\Desktop\test\ece.csv'
-    feature_df = pd.read_csv(feature_csv_path, index_col='CaseName')
-    label_df = pd.read_csv(label_csv_path, index_col='case')
-    label_list = []
-    case_list = []
-    for case in feature_df.index:
-
-        label = label_df.loc[case].values
-        label_list.append(int(label))
-        case_list.append(case)
-
-    df = pd.DataFrame({'label': label_list}, index=case_list)
-    feature_df.insert(loc=0, column='label', value=df)
-    feature_df.to_csv(r'C:\Users\ZhangYihong\Desktop\test\Prostate\features_with_label.csv')
-# AddLabel()
-
-
-def GenerateCSV():
-    path = r'X:\StoreFormatData\ProstateCancerECE\ECE-ROI.csv'
-    feature_df = pd.read_csv(path, index_col='case', encoding='gbk')
-    case_list = []
-    label_list = []
-    for case in feature_df.index:
-        case_list.append(case)
-        label_list.append(feature_df.loc[case]['pECE'])
-
-    new_feature = pd.DataFrame({'case': case_list, 'label': label_list})
-    new_feature.to_csv(r'C:\Users\ZhangYihong\Desktop\test\ece.csv', index=False)
-# GenerateCSV()
-
-
-def LabelStatistic():
-    pass
-
 
 def Show():
-    folder = r'Z:\PM'
+    folder = r'Z:\PM\Prostate301_copy'
+
     for index, case in enumerate(os.listdir(folder)):
         case_folder = os.path.join(folder, case)
         t2_path = os.path.join(case_folder, 't2.nii')
         roi_path = os.path.join(case_folder, 'ProstateX_UNet.nii.gz')
         _, t2, _ = LoadImage(t2_path, is_show_info=True)
-        _, roi, _ = LoadImage(roi_path, is_show_info=True)
+        _, roi, _ = LoadImage(roi_path)
 
         roi_1 = (roi == 1).astype(int)
         roi_2 = (roi == 2).astype(int)
@@ -267,4 +240,102 @@ def Show():
         roi_4 = (roi == 4).astype(int)
 
         Imshow3DArray(Normalize01(t2), roi=[Normalize01(roi_1), Normalize01(roi_2), Normalize01(roi_3), Normalize01(roi_4)])
-Show()
+# Show()
+
+
+def MyShow():
+    _, t2, _ = LoadImage(r'Z:\PM\t2.nii', is_show_info=True)
+    _, roi, _ = LoadImage(r'Z:\PM\ProstateX_UNet.nii.gz', is_show_info=True)
+    Imshow3DArray(np.concatenate([Normalize01(t2), Normalize01(roi)], axis=1))
+# MyShow()
+
+
+def Copy():
+    src_root = r'/home/zhangyihong/Documents/Prostate301'
+    des_root = r'/home/zhangyihong/Documents/Prostate301_copy'
+    for case in os.listdir(src_root):
+        des_folder = os.path.join(des_root, case)
+
+        des_roi_path = os.path.join(des_folder, 'ProstateX_UNet.nii.gz')
+        des_t2_path = os.path.join(des_folder, 't2.nii')
+        src_roi_path = os.path.join(src_root, '{}/ProstateX_UNet.nii.gz'.format(case))
+        src_t2_path = os.path.join(src_root, '{}/t2.nii'.format(case))
+
+        if os.path.exists(src_roi_path) and os.path.exists(src_t2_path):
+            if not os.path.exists(des_folder):
+                os.mkdir(des_folder)
+            shutil.copy(src_roi_path, des_roi_path)
+            shutil.copy(src_t2_path, des_t2_path)
+            print('********** o(´^｀)o | copying {} **********'.format(case))
+        else:
+            print('{} have no t2'.format(case))
+# Copy()
+
+
+def Demo():
+    case_folder = r'Z:\PM\Prostate301_copy\PM01'
+
+    t2_path = os.path.join(case_folder, 't2.nii')
+    # roi_path = os.path.join(case_folder, 'ProstateX_UNet_normal.nii.gz')
+    roi_path_flip = os.path.join(case_folder, 'ProstateX_UNet.nii.gz')
+    _, t2, _ = LoadImage(t2_path, is_show_info=True)
+    _, roi_flip, _ = LoadImage(roi_path_flip)
+    # _, roi, _ = LoadImage(roi_path)
+    t2_flip = np.flip(t2, axis=1)
+    roi_flip = np.flip(roi_flip, axis=1)
+
+    roi_1_flip = (roi_flip == 1).astype(int)
+    roi_2_flip = (roi_flip == 2).astype(int)
+    roi_3_flip = (roi_flip == 3).astype(int)
+    roi_4_flip = (roi_flip == 4).astype(int)
+
+    Imshow3DArray(Normalize01(t2), roi=[Normalize01(roi_1_flip), Normalize01(roi_2_flip), Normalize01(roi_3_flip), Normalize01(roi_4_flip)])
+
+# Demo()
+
+
+# def ShowNPY():
+#     folder = r'Z:\PM\Prostate301_test_npy'
+#     for index, case in enumerate(os.listdir(folder)):
+#         roi_list = []
+#         case_folder = os.path.join(folder, case)
+#         t2_path = os.path.join(case_folder, 't2.npy')
+#         t2 = np.load(t2_path).transpose([1, 2, 0])
+#         for num in range(18):
+#             roi_path = os.path.join(case_folder, 'prediction_{}.npy'.format(num))
+#             roi_list.append(np.load(roi_path))
+#         roi = np.array(roi_list)  #(18, 20, 5, 200, 200)
+#         roi = np.squeeze(np.sum(roi, axis=0) / 18)  #(20, 5, 200, 200)
+#         roi = np.argmax(roi, axis=1)
+#         roi = roi.transpose([1, 2, 0])
+#
+#         roi_1 = (roi == 1).astype(int)
+#         roi_2 = (roi == 2).astype(int)
+#         roi_3 = (roi == 3).astype(int)
+#         roi_4 = (roi == 4).astype(int)
+#
+#         Imshow3DArray(Normalize01(t2), roi=[Normalize01(roi_1), Normalize01(roi_2), Normalize01(roi_3), Normalize01(roi_4)])
+#     # Imshow3DArray(np.concatenate([Normalize01(t2.transpose([1, 2, 0])), Normalize01(roi.transpose([1, 2, 0]))], axis=1))
+# ShowNPY()
+
+def ShowNPY():
+    folder = r'Z:\PM\Prostate301_test_npy'
+    for index, case in enumerate(os.listdir(folder)):
+        case = 'PM03'
+        case_folder = os.path.join(folder, case)
+        t2_path = os.path.join(case_folder, 't2.npy')
+        t2 = np.load(t2_path).transpose([1, 2, 0])
+        # for num in range(18):
+        roi_path = os.path.join(case_folder, 'prediction_{}.npy'.format(str(0)))
+        roi = np.load(roi_path)
+
+        roi = np.argmax(roi, axis=1)
+        roi = roi.transpose([1, 2, 0])
+
+        roi_1 = (roi == 1).astype(int)
+        roi_2 = (roi == 2).astype(int)
+        roi_3 = (roi == 3).astype(int)
+        roi_4 = (roi == 4).astype(int)
+
+        Imshow3DArray(Normalize01(t2), roi=[Normalize01(roi_1), Normalize01(roi_2), Normalize01(roi_3), Normalize01(roi_4)])
+# ShowNPY()

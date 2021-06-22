@@ -4,9 +4,8 @@
 https://github.com/milesial/Pytorch-UNet
 '''
 
-import torch.nn.functional as F
-
 from ModelfromGitHub.UNet.unet_parts import *
+from SegModel.Block import *
 
 
 class UNet(nn.Module):
@@ -67,11 +66,34 @@ class UNet25D(nn.Module):
         return logits
 
 
+class AttenUNet25D(nn.Module):
+    def __init__(self, n_channels, n_classes, filters=32, bilinear=True, factor=2):
+        super(AttenUNet25D, self).__init__()
+        self.n_channels = n_channels
+        self.n_classes = n_classes
+        self.bilinear = bilinear
+
+        self.encoding1 = Encoding(n_channels, filters, factor=factor)
+        self.encoding2 = Encoding(n_channels, filters, factor=factor)
+        self.encoding3 = Encoding(n_channels, filters, factor=factor)
+
+        self.decoding = AttenDecoding(n_classes, filters, factor=factor, bilinear=bilinear)
+
+
+    def forward(self, x):
+        x1 = self.encoding1(x[:, 0:1, ...])
+        x2 = self.encoding1(x[:, 1:2, ...])
+        x3 = self.encoding1(x[:, 2:, ...])
+
+        logits = self.decoding([x1, x2, x3])
+
+        # return torch.softmax(logits, dim=1)
+        return logits
 
 
 def test():
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model = UNet25D(n_channels=1, n_classes=5, bilinear=True, factor=2)
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    model = UNet25D(n_channels=1, n_classes=5, bilinear=True)
     model = model.to(device)
     print(model)
     inputs = torch.randn(1, 3, 200, 200).to(device)

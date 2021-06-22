@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from SegModel.UNet import DoubleConv
+from ModelfromGitHub.UNet.unet_model import UNet25D
 from PreProcess.DistanceMapNumpy import DistanceMap
 
 
@@ -88,12 +90,28 @@ class WNet(nn.Module):
         return torch.softmax(out1, dim=1), torch.softmax(out2, dim=1)
 
 
+class WNet2_5D(nn.Module):
+    def __init__(self, in_ch1, out_ch1, in_ch2, out_ch2, filters=32):
+        super(WNet2_5D, self).__init__()
+        self.UNet1 = UNet25D(in_ch1, out_ch1)
+        self.UNet2 = UNet25D(in_ch2, out_ch2)
+
+    def forward(self, x):
+        input1 = input2 = x
+        out1 = self.UNet1(input1)
+        # out1_softmax = F.softmax(out1, dim=1)
+        # other = torch.argmax(out1_softmax, dim=1, keepdim=True)
+        # input2 = x * other
+        out2 = self.UNet2(input2)
+        return out1, out2
+
+
 def test():
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model = WNet(in_ch1=1, out_ch1=2, in_ch2=2, out_ch2=3)
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    model = WNet2_5D(in_ch1=1, out_ch1=2, in_ch2=1, out_ch2=3)
     model = model.to(device)
     print(model)
-    inputs = torch.randn(1, 1, 200, 200).to(device)
+    inputs = torch.randn(1, 3, 200, 200).to(device)
     prediction1, prediction2 = model(inputs)
     print(prediction1.shape, prediction2.shape)
 

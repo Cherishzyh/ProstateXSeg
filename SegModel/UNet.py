@@ -125,7 +125,7 @@ class UNet(nn.Module):
         merge4 = torch.cat((up_8, x1), dim=1)
         x8 = self.conv9(merge4)
         x9 = self.conv10(x8)
-        return torch.sigmoid(x9)
+        return x9
 
 
 class UNet25D(nn.Module):
@@ -204,16 +204,52 @@ class UNet25D(nn.Module):
         merge8 = torch.cat((up_7, a_c1, b_c1, c_c1), dim=1)
         c8 = self.conv8(merge8)
         c9 = self.conv9(c8)
-        return torch.softmax(c9, dim=1)
+        return c9
+
+
+class UNetSimple(nn.Module):
+    def __init__(self, in_channels, out_channels, filters=32):
+        super(UNetSimple, self).__init__()
+
+        self.pool = nn.MaxPool2d(2)
+
+        self.conv1 = DoubleConv(in_channels, filters)
+        self.conv2 = DoubleConv(filters, filters*2)
+        self.conv3 = DoubleConv(filters*2, filters*4)
+
+        self.up4 = nn.ConvTranspose2d(filters*4, filters*2, 2, stride=2)
+        self.conv4 = DoubleConv(filters*4, filters*2)
+        self.up5 = nn.ConvTranspose2d(filters*2, filters, 2, stride=2)
+        self.conv5 = DoubleConv(filters*2, filters)
+        self.conv6 = nn.Conv2d(filters, out_channels, 1)
+
+    def forward(self, x):
+        x1 = self.conv1(x)
+
+        x2 = self.pool(x1)
+        x2 = self.conv2(x2)
+
+        x3 = self.pool(x2)
+        x3 = self.conv3(x3)
+
+        up_4 = self.up4(x3)
+        merge1 = torch.cat((up_4, x2), dim=1)
+        x4 = self.conv4(merge1)
+
+        up_5 = self.up5(x4)
+        merge2 = torch.cat((up_5, x1), dim=1)
+        x5 = self.conv5(merge2)
+        x6 = self.conv6(x5)
+        return x6
 
 
 def test():
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model = UNet(in_channels=1, out_channels=2)
+    model = UNetSimple(in_channels=3, out_channels=2)
     # model = UNet25D(in_channels=1, out_channels=5)
     model = model.to(device)
     print(model)
-    inputs = torch.randn(1, 1, 184, 184).to(device)
+    inputs = torch.randn(1, 3, 184, 184).to(device)
     prediction = model(inputs)
     print(prediction.shape)
 
