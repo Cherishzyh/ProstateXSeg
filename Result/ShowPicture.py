@@ -5,11 +5,228 @@ import matplotlib.pyplot as plt
 
 # from SSHProject.CnnTools.T4T.Utility.Data import *
 
-from SSHProject.BasicTool.MeDIT.Statistics import BinarySegmentation
-from SSHProject.BasicTool.MeDIT.ArrayProcess import ExtractPatch
+from BasicTool.MeDIT.Statistics import BinarySegmentation
+from BasicTool.MeDIT.ArrayProcess import ExtractPatch
 
 from Statistics.Metric import Dice
 from PreProcess.Nii2NPY import ROIOneHot
+
+
+def ShoweResult(model_folder, data_type='train', num_pred=1, save_path=r''):
+    if save_path and not os.path.exists(save_path):
+        os.mkdir(save_path)
+    result_folder = os.path.join(model_folder, 'Result')
+    label_path = os.path.join(result_folder, '{}_label.npy'.format(data_type))
+    t2_path = os.path.join(result_folder, '{}_t2.npy'.format(data_type))
+    if num_pred == 1:
+        pred_path = os.path.join(result_folder, '{}_preds.npy'.format(data_type))
+        label = np.load(label_path)
+        pred = np.load(pred_path)
+        t2 = np.load(t2_path)
+
+        for index in range(label.shape[0]):
+            pred_pro = np.clip(np.argmax(pred[index], axis=0), a_min=0, a_max=1.)
+            label_pro = np.clip(np.argmax(label[index], axis=0), a_min=0, a_max=1.)
+            pred_index = ROIOneHot(np.argmax(pred[index], axis=0))
+            t2_index = t2[index][1]
+            label_index = label[index]
+
+            plt.figure(figsize=(12, 6))
+
+            plt.subplot(231)
+            plt.axis('off')
+            plt.imshow(t2_index, cmap='gray')
+            plt.contour(label_index[1, ...], colors='r')
+            plt.contour(label_index[2, ...], colors='g')
+            plt.contour(label_index[3, ...], colors='b')
+            plt.contour(label_index[4, ...], colors='y')
+
+            plt.subplot(232)
+            plt.title('Pro: {:.3f}'.format(Dice(label_pro, pred_pro)))
+            plt.axis('off')
+            plt.imshow(t2_index, cmap='gray')
+            plt.contour(label_pro, colors='darkorange')
+            plt.contour(pred_pro, colors='m')
+
+            plt.subplot(233)
+            plt.title('PZ: {:.3f}'.format(Dice(pred_index[1], label_index[1])))
+            plt.axis('off')
+            plt.imshow(t2_index, cmap='gray')
+            plt.contour(label_index[1], colors='r')
+            plt.contour(pred_index[1], colors='m')
+
+            plt.subplot(234)
+            plt.title('CG: {:.3f}'.format(Dice(pred_index[2], label_index[2])))
+            plt.axis('off')
+            plt.imshow(t2_index, cmap='gray')
+            plt.contour(label_index[2], colors='g')
+            plt.contour(pred_index[2], colors='m')
+
+            plt.subplot(235)
+            plt.title('U: {:.3f}'.format(Dice(pred_index[3], label_index[3])))
+            plt.axis('off')
+            plt.imshow(t2_index, cmap='gray')
+            plt.contour(label_index[3], colors='b')
+            plt.contour(pred_index[3], colors='m')
+
+            plt.subplot(236)
+            plt.title('AMSF: {:.3f}'.format(Dice(pred_index[4], label_index[4])))
+            plt.axis('off')
+            plt.imshow(t2_index, cmap='gray')
+            plt.contour(label_index[4], colors='y')
+            plt.contour(pred_index[4], colors='m')
+
+            if save_path:
+                plt.savefig(os.path.join(save_path, 'test_{}.jpg'.format(index)), bbox_inches='tight', pad_inches=0.05)
+                plt.close()
+            else:
+                plt.show()
+    #
+    # elif num_pred == 2:
+    #     pred_path1 = os.path.join(result_folder, '{}_preds1.npy'.format(data_type))
+    #     pred_path2 = os.path.join(result_folder, '{}_preds2.npy'.format(data_type))
+    #
+    #     label = np.load(label_path)
+    #     pred1 = np.load(pred_path1)
+    #     pred2 = np.load(pred_path2)
+    #     for index in range(label.shape[0]):
+    #         pred_index = ROIOneHot(np.argmax(pred2[index], axis=0))
+    #         plt.figure(figsize=(12, 4))
+    #
+    #         ############################################################################################################
+    #         plt.subplot(351)
+    #         plt.axis('off')
+    #         plt.imshow(label[index][0, ...], cmap='gray')
+    #         plt.subplot(352)
+    #         plt.axis('off')
+    #         plt.imshow(label[index][1, ...], cmap='gray')
+    #         plt.subplot(353)
+    #         plt.axis('off')
+    #         plt.imshow(label[index][2, ...], cmap='gray')
+    #         plt.subplot(354)
+    #         plt.axis('off')
+    #         plt.imshow(label[index][3, ...], cmap='gray')
+    #         plt.subplot(355)
+    #         plt.axis('off')
+    #         plt.imshow(label[index][4, ...], cmap='gray')
+    #
+    #         ############################################################################################################
+    #         plt.subplot(356)
+    #         plt.axis('off')
+    #         plt.imshow(pred1[index][0, ...], cmap='gray')
+    #         plt.subplot(357)
+    #         plt.axis('off')
+    #         plt.imshow(pred1[index][1, ...], cmap='gray')
+    #         plt.subplot(358)
+    #         plt.axis('off')
+    #         plt.imshow(pred1[index][2, ...], cmap='gray')
+    #
+    #         ############################################################################################################
+    #         plt.subplot(3, 5, 11)
+    #         plt.title('{:.3f}'.format(Dice(pred_index[0], label[index][0])))
+    #         plt.axis('off')
+    #         plt.imshow(pred2[index][0, ...], cmap='gray')
+    #
+    #         plt.subplot(3, 5, 12)
+    #         plt.title('{:.3f}'.format(Dice(pred_index[1], label[index][1])))
+    #         plt.axis('off')
+    #         plt.imshow(pred2[index][1, ...], cmap='gray')
+    #
+    #         plt.subplot(3, 5, 13)
+    #         plt.title('{:.3f}'.format(Dice(pred_index[2], label[index][2])))
+    #         plt.axis('off')
+    #         plt.imshow(pred2[index][2, ...], cmap='gray')
+    #
+    #         plt.subplot(3, 5, 14)
+    #         plt.title('{:.3f}'.format(Dice(pred_index[3], label[index][3])))
+    #         plt.axis('off')
+    #         plt.imshow(pred2[index][3, ...], cmap='gray')
+    #
+    #         plt.subplot(3, 5, 15)
+    #         plt.title('{:.3f}'.format(Dice(pred_index[4], label[index][4])))
+    #         plt.axis('off')
+    #         plt.imshow(pred2[index][4, ...], cmap='gray')
+    #
+    #         # plt.savefig()
+    #
+    #         plt.show()
+
+
+def ShowAtten(model, model_folder, epoch, data_type='train', save_path=r''):
+    from BasicTool.MeDIT.Normalize import Normalize01
+
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    input_shape = (200, 200)
+    batch_size = 1
+
+    spliter = DataSpliter()
+    sub_list = spliter.LoadName(data_root + '/{}_name.csv'.format(data_type))
+
+    data = DataManager(sub_list=sub_list)
+    data.AddOne(Image2D(data_root + '/T2Slice', shape=input_shape))
+    data.AddOne(Image2D(data_root + '/RoiSlice', shape=input_shape), is_input=False)
+    data_loader = DataLoader(data, batch_size=batch_size, shuffle=False)
+
+    model = model.to(device)
+    model.load_state_dict(torch.load(model_folder + epoch))
+
+    if save_path:
+        if not os.path.exists(save_path):
+            os.mkdir(save_path)
+
+    model.eval()
+    for index, (inputs, outputs) in enumerate(data_loader):
+        inputs = MoveTensorsToDevice(inputs, device)
+        outputs = MoveTensorsToDevice(outputs, device)
+
+        preds0, preds1, atten5, atten6, atten7 = model(inputs, 15)
+        atten5 = F.interpolate(atten5, size=preds1.shape[2:], mode='bilinear')
+        atten6 = F.interpolate(atten6, size=preds1.shape[2:], mode='bilinear')
+        atten7 = F.interpolate(atten7, size=preds1.shape[2:], mode='bilinear')
+        # index5 = torch.argmax(F.adaptive_avg_pool2d(atten5, 1))
+        # index6 = torch.argmax(F.adaptive_avg_pool2d(atten6, 1))
+        # index7 = torch.argmax(F.adaptive_avg_pool2d(atten7, 1))
+
+        plt.figure(figsize=(12, 8))
+        # label
+        plt.subplot(241)
+        plt.axis('off')
+        plt.imshow(np.squeeze(inputs.cpu().data.numpy()), cmap='gray')
+        plt.contour(np.squeeze(outputs[:, 0, ...].cpu().data.numpy()), colors='r')
+        plt.contour(np.squeeze(outputs[:, 1, ...].cpu().data.numpy()), colors='y')
+        plt.contour(np.squeeze(outputs[:, 2, ...].cpu().data.numpy()), colors='g')
+        plt.contour(np.squeeze(outputs[:, 3, ...].cpu().data.numpy()), colors='b')
+
+        plt.subplot(242)
+        plt.axis('off')
+        plt.imshow(Normalize01(atten5[0, 0, ...].cpu().data.numpy()), cmap='jet', vmin=0, vmax=1)
+
+        plt.subplot(243)
+        plt.axis('off')
+        plt.imshow(Normalize01(atten6[0, 0, ...].cpu().data.numpy()), cmap='jet', vmin=0, vmax=1)
+
+        plt.subplot(244)
+        plt.axis('off')
+        plt.imshow(Normalize01(atten7[0, 0, ...].cpu().data.numpy()), cmap='jet', vmin=0, vmax=1)
+
+        plt.subplot(245)
+        plt.axis('off')
+        plt.imshow(np.squeeze(torch.softmax(preds1[:, 1, ...], dim=1).cpu().data.numpy()), cmap='gray')
+        plt.subplot(246)
+        plt.axis('off')
+        plt.imshow(np.squeeze(torch.softmax(preds1[:, 2, ...], dim=1).cpu().data.numpy()), cmap='gray')
+        plt.subplot(247)
+        plt.axis('off')
+        plt.imshow(np.squeeze(torch.softmax(preds1[:, 3, ...], dim=1).cpu().data.numpy()), cmap='gray')
+        plt.subplot(248)
+        plt.axis('off')
+        plt.imshow(np.squeeze(torch.softmax(preds1[:, 4, ...], dim=1).cpu().data.numpy()), cmap='gray')
+
+        if save_path:
+            plt.savefig(os.path.join(save_path, 'test_{}.jpg'.format(index)))
+            plt.close()
+        else:
+            plt.show()
 
 
 def ComputeDice(result_path, t2_folder, data_type):
@@ -208,25 +425,39 @@ def ShowBestWorseResult(dice1_list, dice2_list, dice3_list, dice4_list, preds_ar
 
 
 if __name__ == '__main__':
+    from SegModel.ResNet50 import *
+
     model_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model'
-    data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice'
-    t2_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice/T2Slice'
+    # data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice'
+    # t2_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice/T2Slice'
+    data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice'
+    t2_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice/T2Slice'
 
-    # data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice'
-    # t2_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice/T2Slice'
 
-    model_path1 = os.path.join(model_root, 'TwoUNet_bce')
-    result_path1 = os.path.join(model_path1, 'Result')
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    model = ResUNet4Cls([2, 3, 3, 3], 3, 5).to(device)
 
-    train_1, train_2, train_3, train_4, train_5 = ComputeDice(result_path1, t2_folder, 'train')
-    print('{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}'.format(sum(train_1) / len(train_1), sum(train_2) / len(train_2),
-                                                          sum(train_3) / len(train_3), sum(train_4) / len(train_4), sum(train_5) / len(train_5)))
-    val_1, val_2, val_3, val_4, val_5 = ComputeDice(result_path1, t2_folder, 'val')
-    print('{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}'.format(sum(val_1) / len(val_1), sum(val_2) / len(val_2),
-                                                          sum(val_3) / len(val_3), sum(val_4) / len(val_4), sum(val_5) / len(val_5)))
-    test_1, test_2, test_3, test_4, test_5 = ComputeDice(result_path1, t2_folder, 'test')
-    print('{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}'.format(sum(test_1) / len(test_1), sum(test_2) / len(test_2),
-                                                          sum(test_3) / len(test_3), sum(test_4) / len(test_4), sum(test_5) / len(test_5)))
+    model_folder = os.path.join(model_root, 'ResUNet_0629')
+    epoch = '13-9.513482.pt'
+
+    ShoweResult(model_folder, data_type='test', num_pred=1, save_path=os.path.join(model_folder, 'Image'))
+
+    # ShowAtten(model_path, data_type='train')
+    # ShowAtten(model_path, data_type='val')
+    # ShowAtten(model, model_path, epoch, data_type='test', save_path=r'')
+    # ShowAtten(model, model_path, epoch, data_type='test', save_path=os.path.join(model_path, 'SpatialAttention'))
+
+
+    # ************************************  2D Dice  *****************************************
+    # train_1, train_2, train_3, train_4, train_5 = ComputeDice(result_path1, t2_folder, 'train')
+    # print('{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}'.format(sum(train_1) / len(train_1), sum(train_2) / len(train_2),
+    #                                                       sum(train_3) / len(train_3), sum(train_4) / len(train_4), sum(train_5) / len(train_5)))
+    # val_1, val_2, val_3, val_4, val_5 = ComputeDice(result_path1, t2_folder, 'val')
+    # print('{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}'.format(sum(val_1) / len(val_1), sum(val_2) / len(val_2),
+    #                                                       sum(val_3) / len(val_3), sum(val_4) / len(val_4), sum(val_5) / len(val_5)))
+    # test_1, test_2, test_3, test_4, test_5 = ComputeDice(result_path1, t2_folder, 'test')
+    # print('{:.3f}, {:.3f}, {:.3f}, {:.3f}, {:.3f}'.format(sum(test_1) / len(test_1), sum(test_2) / len(test_2),
+    #                                                       sum(test_3) / len(test_3), sum(test_4) / len(test_4), sum(test_5) / len(test_5)))
 
     # train_1, train_2, train_3, train_4 = ComputeDiceWNet(result_path1, t2_folder, 'train')
     # print('{:.3f}, {:.3f}, {:.3f}, {:.3f}'.format(sum(train_1) / len(train_1), sum(train_2) / len(train_2), sum(train_3) / len(train_3), sum(train_4) / len(train_4)))
@@ -234,5 +465,4 @@ if __name__ == '__main__':
     # print('{:.3f}, {:.3f}, {:.3f}, {:.3f}'.format(sum(val_1) / len(val_1), sum(val_2) / len(val_2), sum(val_3) / len(val_3), sum(val_4) / len(val_4)))
     # test_1, test_2, test_3, test_4 = ComputeDiceWNet(result_path1, t2_folder, 'test')
     # print('{:.3f}, {:.3f}, {:.3f}, {:.3f}'.format(sum(test_1) / len(test_1), sum(test_2) / len(test_2), sum(test_3) / len(test_3), sum(test_4) / len(test_4)))
-
-    # ModelCompare(result_path1, result_path2, t2_folder, 'test')
+    # ************************************  2D Dice  *****************************************

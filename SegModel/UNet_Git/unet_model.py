@@ -4,7 +4,7 @@
 https://github.com/milesial/Pytorch-UNet
 '''
 
-from ModelfromGitHub.UNet.unet_parts import *
+from SegModel.UNet_Git.unet_parts import *
 from SegModel.Block import *
 
 
@@ -52,7 +52,7 @@ class UNet25D(nn.Module):
         self.encoding2 = Encoding(n_channels, filters, factor=factor)
         self.encoding3 = Encoding(n_channels, filters, factor=factor)
 
-        self.decoding = Decoding(n_classes, filters, factor=factor, bilinear=bilinear)
+        self.decoding = Decoding4SuccessfulModel(n_classes, filters, factor=factor, bilinear=bilinear)
 
 
     def forward(self, x):
@@ -93,12 +93,13 @@ class AttenUNet25D(nn.Module):
 
 def test():
     device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
-    model = UNet25D(n_channels=1, n_classes=5, bilinear=True)
+    model = UNet(n_channels=1, n_classes=5, bilinear=True)
     model = model.to(device)
     print(model)
-    inputs = torch.randn(1, 3, 200, 200).to(device)
+    inputs = torch.randn(1, 1, 200, 200).to(device)
     prediction = model(inputs)
     print(prediction.shape)
+
 
 if __name__ == '__main__':
     test()

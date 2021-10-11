@@ -261,7 +261,7 @@ class BaseImageOutModel():
         self._config.LoadModelConfig(config_path)
 
         sys.path.append(fold_path)
-        from ModelfromGitHub.UNet.unet_model import UNet25D
+        from SegModel.UNet_Git.unet_model import UNet25D
 
         self._model = UNet25D(n_channels=1, n_classes=5, bilinear=True, factor=2)
         self._model.to(self.device)

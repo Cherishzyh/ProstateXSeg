@@ -11,8 +11,8 @@ from CnnTools.T4T.Utility.Data import *
 from CnnTools.T4T.Utility.CallBacks import EarlyStopping
 from CnnTools.T4T.Utility.Initial import HeWeightInit
 
-from Statistics.Loss import DiceLoss
-from Statistics.Metric import Dice
+from Statistics.Loss import WeightedDiceLoss, BCEFocalLoss, CrossEntropy
+
 
 def ClearGraphPath(graph_path):
     if not os.path.exists(graph_path):
@@ -25,10 +25,10 @@ def ClearGraphPath(graph_path):
 def _GetLoader(sub_list, aug_param_config, input_shape, batch_size, shuffle):
     data = DataManager(sub_list=sub_list, augment_param=aug_param_config)
     data.AddOne(Image2D(data_root + '/T2Slice', shape=input_shape))
-    data.AddOne(Label(data_root + '/class_label.csv', label_tag='PZ'), is_input=False)
-    data.AddOne(Label(data_root + '/class_label.csv', label_tag='CG'), is_input=False)
-    data.AddOne(Label(data_root + '/class_label.csv', label_tag='U'), is_input=False)
-    data.AddOne(Label(data_root + '/class_label.csv', label_tag='AMSF'), is_input=False)
+    data.AddOne(Label(data_root + '/class_label.csv', label_tag='PZ', dtype=np.float32), is_input=False)
+    data.AddOne(Label(data_root + '/class_label.csv', label_tag='CG', dtype=np.float32), is_input=False)
+    data.AddOne(Label(data_root + '/class_label.csv', label_tag='U', dtype=np.float32), is_input=False)
+    data.AddOne(Label(data_root + '/class_label.csv', label_tag='AMSF', dtype=np.float32), is_input=False)
     data.AddOne(Image2D(data_root + '/RoiSlice', shape=input_shape, is_roi=True), is_input=False)
     loader = DataLoader(data, batch_size=batch_size, shuffle=shuffle)
     batches = np.ceil(len(data.indexes) / batch_size)
@@ -74,9 +74,10 @@ def Train(model, device, model_name, net_path):
     model.apply(HeWeightInit)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    cls_criterion = torch.nn.BCEWithLogitsLoss()
-    seg_dice = DiceLoss()
-    seg_ce = torch.nn.NLLLoss()
+    cls_bce = torch.nn.BCELoss()
+    # cls_focal = BCEFocalLoss()
+    seg_dice = WeightedDiceLoss(ignore_index=[0])
+    seg_ce = CrossEntropy()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.5, verbose=True)
     early_stopping = EarlyStopping(store_path=str(model_folder / '{}-{:.6f}.pt'), patience=50, verbose=True)
@@ -94,28 +95,17 @@ def Train(model, device, model_name, net_path):
 
         model.train()
         for ind, (inputs, outputs) in enumerate(train_loader):
-            outputs_nocoding = torch.argmax(outputs[4], dim=1)
-            outputs_nocoding = MoveTensorsToDevice(outputs_nocoding, device)
             inputs = MoveTensorsToDevice(inputs, device)
             outputs = MoveTensorsToDevice(outputs, device)
 
             cls, seg = model(inputs)
 
-            loss_pz = cls_criterion(cls[:, 0], outputs[0])
-            loss_cg = cls_criterion(cls[:, 1], outputs[1])
-            loss_u = cls_criterion(cls[:, 2], outputs[2])
-            loss_asmf = cls_criterion(cls[:, 3], outputs[3])
-
-            seg_pred = torch.softmax(seg, dim=1)
-            seg_pred_cg = (seg_pred[:, 1, ...].transpose(0, 1).transpose(1, 2) * cls[:, 0]).transpose(1, 2).transpose(0, 1)
-            seg_pred_pz = (seg_pred[:, 2, ...].transpose(0, 1).transpose(1, 2) * cls[:, 1]).transpose(1, 2).transpose(0, 1)
-            seg_pred_u = (seg_pred[:, 3, ...].transpose(0, 1).transpose(1, 2) * cls[:, 2]).transpose(1, 2).transpose(0, 1)
-            seg_pred_as = (seg_pred[:, 4, ...].transpose(0, 1).transpose(1, 2) * cls[:, 3]).transpose(1, 2).transpose(0, 1)
-            new_seg = torch.stack((seg_pred[:, 0, ...], seg_pred_cg, seg_pred_pz, seg_pred_u, seg_pred_as), dim=1)
-            seg_pred_new = torch.softmax(new_seg, dim=1)
-
-            loss_dice = seg_dice(seg_pred_new, outputs[4])
-            loss_ce = seg_ce(seg_pred_new.log(), outputs_nocoding)
+            loss_pz = cls_bce(cls[:, 0], outputs[0])
+            loss_cg = cls_bce(cls[:, 1], outputs[1])
+            loss_u = cls_bce(cls[:, 2], outputs[2])
+            loss_asmf = cls_bce(cls[:, 3], outputs[3])
+            loss_dice = seg_dice(seg, outputs[4])
+            loss_ce = seg_ce(seg, outputs[4])
             loss = loss_pz + loss_cg + loss_u + loss_asmf + loss_ce + loss_dice
 
             optimizer.zero_grad()
@@ -133,28 +123,17 @@ def Train(model, device, model_name, net_path):
         model.eval()
         with torch.no_grad():
             for ind, (inputs, outputs) in enumerate(val_loader):
-                outputs_nocoding = torch.argmax(outputs[4], dim=1)
-                outputs_nocoding = MoveTensorsToDevice(outputs_nocoding, device)
                 inputs = MoveTensorsToDevice(inputs, device)
                 outputs = MoveTensorsToDevice(outputs, device)
 
                 cls, seg = model(inputs)
 
-                loss_pz = cls_criterion(cls[:, 0], outputs[0])
-                loss_cg = cls_criterion(cls[:, 1], outputs[1])
-                loss_u = cls_criterion(cls[:, 2], outputs[2])
-                loss_asmf = cls_criterion(cls[:, 3], outputs[3])
-
-                seg_pred = torch.softmax(seg, dim=1)
-                seg_pred_cg = (seg_pred[:, 1, ...].transpose(0, 1).transpose(1, 2) * cls[:, 0]).transpose(1, 2).transpose(0, 1)
-                seg_pred_pz = (seg_pred[:, 2, ...].transpose(0, 1).transpose(1, 2) * cls[:, 1]).transpose(1, 2).transpose(0, 1)
-                seg_pred_u = (seg_pred[:, 3, ...].transpose(0, 1).transpose(1, 2) * cls[:, 2]).transpose(1, 2).transpose(0, 1)
-                seg_pred_as = (seg_pred[:, 4, ...].transpose(0, 1).transpose(1, 2) * cls[:, 3]).transpose(1, 2).transpose(0, 1)
-                new_seg = torch.stack((seg_pred[:, 0, ...], seg_pred_cg, seg_pred_pz, seg_pred_u, seg_pred_as), dim=1)
-                seg_pred_new = torch.softmax(new_seg, dim=1)
-
-                loss_dice = seg_dice(seg_pred_new, outputs[4])
-                loss_ce = seg_ce(seg_pred_new.log(), outputs_nocoding)
+                loss_pz = cls_bce(cls[:, 0], outputs[0])
+                loss_cg = cls_bce(cls[:, 1], outputs[1])
+                loss_u = cls_bce(cls[:, 2], outputs[2])
+                loss_asmf = cls_bce(cls[:, 3], outputs[3])
+                loss_dice = seg_dice(seg, outputs[4])
+                loss_ce = seg_ce(seg, outputs[4])
                 loss = loss_pz + loss_cg + loss_u + loss_asmf + loss_ce + loss_dice
 
                 val_loss += loss.item()
@@ -206,50 +185,16 @@ def Train(model, device, model_name, net_path):
         writer.close()
 
 
-def CheckInput():
-    torch.autograd.set_detect_anomaly(True)
-
-    input_shape = (192, 192)
-    total_epoch = 10000
-    batch_size = 24
-
-    param_config = {
-        RotateTransform.name: {'theta': ['uniform', -10, 10]},
-        ShiftTransform.name: {'horizontal_shift': ['uniform', -0.05, 0.05],
-                              'vertical_shift': ['uniform', -0.05, 0.05]},
-        ZoomTransform.name: {'horizontal_zoom': ['uniform', 0.95, 1.05],
-                             'vertical_zoom': ['uniform', 0.95, 1.05]},
-        FlipTransform.name: {'horizontal_flip': ['choice', True, False]},
-        BiasTransform.name: {'center': ['uniform', -1., 1., 2],
-                             'drop_ratio': ['uniform', 0., 1.]},
-        NoiseTransform.name: {'noise_sigma': ['uniform', 0., 0.03]},
-        ContrastTransform.name: {'factor': ['uniform', 0.8, 1.2]},
-        GammaTransform.name: {'gamma': ['uniform', 0.8, 1.2]},
-        ElasticTransform.name: ['elastic', 1, 0.1, 256]
-    }
-
-    train_df = pd.read_csv(os.path.join(data_root, 'train_name.csv'))
-    train_list = train_df.values.tolist()[0]
-
-    train_loader, train_batches = _GetLoader(train_list, param_config, input_shape, batch_size, True)
-
-    for epoch in range(total_epoch):
-        for ind, (inputs, outputs) in enumerate(train_loader):
-            inputs = MoveTensorsToDevice(inputs, device)
-            outputs = MoveTensorsToDevice(outputs, device)
-            print()
-
-
 if __name__ == '__main__':
-    from SegModel.ResNet50 import ModelRun
+    from SegModel.ResNet50 import ResUNetCA
 
     device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
 
     model_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model'
-    data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice'
+    data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice'
 
-    model = ModelRun(1, 4, res_num=34, seg=True).to(device)
+    model = ResUNetCA([2, 3, 3, 3], 3, 5).to(device)
     py_path = r'/home/zhangyihong/SSHProject/ProstateXSeg/SegModel/ResNet50.py'
 
-    Train(model, device, 'ResUNet34_0616_multiloss', py_path)
+    Train(model, device, 'ResUNet_0629_CA', py_path)
     # CheckInput()

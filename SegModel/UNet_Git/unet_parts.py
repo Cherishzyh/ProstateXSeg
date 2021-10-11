@@ -164,14 +164,7 @@ class Decoding(nn.Module):
             self.up2 = Up(filters * 8 * 2, filters * 4 // factor, bilinear)
             self.up3 = Up(filters * 4 * 2, filters * 2 // factor, bilinear)
             self.up4 = Up(filters * 2 * 2, filters, bilinear)
-        ###############################################################################################################
 
-        # self.up1 = Up(filters * 16// factor * 3, filters * 8 * 3, filters * 8 // factor, False)
-        # self.up2 = Up(filters * 8 // factor,     filters * 4 * 3, filters * 4 // factor, bilinear)
-        # self.up3 = Up(filters * 4 // factor,     filters * 2 * 3, filters * 2 // factor, bilinear)
-        # self.up4 = Up(filters * 2 // factor,     filters * 1 * 3, filters, bilinear)
-
-        ###############################################################################################################
         self.outc = OutConv(filters, n_classes)
 
     def forward(self, encoding_result):

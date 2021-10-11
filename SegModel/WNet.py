@@ -1,10 +1,8 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from SegModel.UNet import DoubleConv
-from ModelfromGitHub.UNet.unet_model import UNet25D
-from PreProcess.DistanceMapNumpy import DistanceMap
+from SegModel.UNet_Git.unet_model import UNet25D
 
 
 class WNet(nn.Module):
@@ -61,6 +59,7 @@ class WNet(nn.Module):
         x1_7 = self.Conv1_7(x1_7)
 
         out1 = self.Out1(x1_7)
+
         input2 = out1*input1
 
         x2_1 = self.Conv2_1(input1)

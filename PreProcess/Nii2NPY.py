@@ -2,9 +2,9 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 
-from BasicTool.MeDIT.SaveAndLoad import LoadImage
-from BasicTool.MeDIT.Normalize import Normalize01
-from BasicTool.MeDIT.Visualization import Imshow3DArray
+from MeDIT.SaveAndLoad import LoadImage
+from MeDIT.Normalize import Normalize01
+from MeDIT.Visualization import Imshow3DArray
 
 
 def CropData(t2_data, crop_shape, center, is_roi=False):

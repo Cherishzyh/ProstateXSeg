@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 
-roi_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice/RoiSlice'
+roi_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice/RoiSlice'
 label_df = pd.DataFrame(columns=['PZ', 'CG', 'U', 'AMSF'])
 
 for roi in os.listdir(roi_folder):
@@ -17,7 +17,7 @@ for roi in os.listdir(roi_folder):
 
     label_df = label_df.append(case_df)
 
-label_df.to_csv(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice/class_label.csv')
+label_df.to_csv(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice/class_label.csv')
 
 
 

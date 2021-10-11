@@ -11,6 +11,8 @@ from CnnTools.T4T.Utility.Data import *
 from CnnTools.T4T.Utility.CallBacks import EarlyStopping
 from CnnTools.T4T.Utility.Initial import HeWeightInit
 
+from Statistics.Loss import BCEFocalLoss
+
 
 def ClearGraphPath(graph_path):
     if not os.path.exists(graph_path):
@@ -23,10 +25,10 @@ def ClearGraphPath(graph_path):
 def _GetLoader(sub_list, aug_param_config, input_shape, batch_size, shuffle):
     data = DataManager(sub_list=sub_list, augment_param=aug_param_config)
     data.AddOne(Image2D(data_root + '/T2Slice', shape=input_shape))
-    data.AddOne(Label(data_root + '/class_label.csv', label_tag='PZ'), is_input=False)
-    data.AddOne(Label(data_root + '/class_label.csv', label_tag='CG'), is_input=False)
-    data.AddOne(Label(data_root + '/class_label.csv', label_tag='U'), is_input=False)
-    data.AddOne(Label(data_root + '/class_label.csv', label_tag='AMSF'), is_input=False)
+    data.AddOne(Label(data_root + '/class_label.csv', label_tag='PZ', dtype=np.float32), is_input=False)
+    data.AddOne(Label(data_root + '/class_label.csv', label_tag='CG', dtype=np.float32), is_input=False)
+    data.AddOne(Label(data_root + '/class_label.csv', label_tag='U', dtype=np.float32), is_input=False)
+    data.AddOne(Label(data_root + '/class_label.csv', label_tag='AMSF', dtype=np.float32), is_input=False)
     loader = DataLoader(data, batch_size=batch_size, shuffle=shuffle)
     batches = np.ceil(len(data.indexes) / batch_size)
     return loader, batches
@@ -35,9 +37,9 @@ def _GetLoader(sub_list, aug_param_config, input_shape, batch_size, shuffle):
 def Train(model, device, model_name, net_path):
     torch.autograd.set_detect_anomaly(True)
 
-    input_shape = (200, 200)
+    input_shape = (192, 192)
     total_epoch = 10000
-    batch_size = 48
+    batch_size = 64
 
     model_folder = MakeFolder(model_root + '/{}'.format(model_name))
     ClearGraphPath(model_folder)
@@ -71,7 +73,8 @@ def Train(model, device, model_name, net_path):
     model.apply(HeWeightInit)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    criterion = torch.nn.BCEWithLogitsLoss()
+    bce = torch.nn.BCELoss()
+    # focal = BCEFocalLoss()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.5, verbose=True)
     early_stopping = EarlyStopping(store_path=str(model_folder / '{}-{:.6f}.pt'), patience=50, verbose=True)
@@ -92,10 +95,10 @@ def Train(model, device, model_name, net_path):
 
             preds = model(inputs)
 
-            loss_pz = criterion(preds[:, 0], outputs[0])
-            loss_cg = criterion(preds[:, 1], outputs[1])
-            loss_u = criterion(preds[:, 2], outputs[2])
-            loss_asmf = criterion(preds[:, 3], outputs[3])
+            loss_pz = bce(preds[:, 0], outputs[0])
+            loss_cg = bce(preds[:, 1], outputs[1])
+            loss_u = bce(preds[:, 2], outputs[2])
+            loss_asmf = bce(preds[:, 3], outputs[3])
             loss = loss_pz + loss_cg + loss_u + loss_asmf
 
             optimizer.zero_grad()
@@ -116,10 +119,10 @@ def Train(model, device, model_name, net_path):
 
                 preds = model(inputs)
 
-                loss_pz = criterion(preds[:, 0], outputs[0])
-                loss_cg = criterion(preds[:, 1], outputs[1])
-                loss_u = criterion(preds[:, 2], outputs[2])
-                loss_asmf = criterion(preds[:, 3], outputs[3])
+                loss_pz = bce(preds[:, 0], outputs[0])
+                loss_cg = bce(preds[:, 1], outputs[1])
+                loss_u = bce(preds[:, 2], outputs[2])
+                loss_asmf = bce(preds[:, 3], outputs[3])
                 loss = loss_pz + loss_cg + loss_u + loss_asmf
 
                 val_loss += loss.item()
@@ -149,7 +152,17 @@ def Train(model, device, model_name, net_path):
                            {'train_loss': train_loss_asmf / train_batches, 'val_loss': val_loss_asmf / val_batches},
                            epoch + 1)
 
-
+        print(
+            '*************************************** Epoch {} | (◕ᴗ◕✿) ***************************************'.format(
+                epoch + 1))
+        print('    dice pz: {:.3f},     dice cg: {:.3f},     dice U: {:.3f},     dice AFMS: {:.3f}'.
+              format(np.sum(train_dice_pz) / len(train_dice_pz), np.sum(train_dice_cg) / len(train_dice_cg),
+                     np.sum(train_dice_U) / len(train_dice_U), np.sum(train_dice_AFMS) / len(train_dice_AFMS)))
+        print('val-dice pz: {:.3f}, val-dice cg: {:.3f}, val-dice U: {:.3f}, val-dice AFMS: {:.3f}'.
+              format(np.sum(val_dice_pz) / len(val_dice_pz), np.sum(val_dice_cg) / len(val_dice_cg),
+                     np.sum(val_dice_U) / len(val_dice_U), np.sum(val_dice_AFMS) / len(val_dice_AFMS)))
+        print()
+        print('loss: {:.3f}, val-loss: {:.3f}'.format(train_loss / train_batches, val_loss / val_batches))
         print('loss: {:.3f}, val-loss: {:.3f}'.format(train_loss / train_batches, val_loss / val_batches))
 
         scheduler.step(val_loss)
@@ -192,21 +205,19 @@ def CheckInput():
 
     for epoch in range(total_epoch):
         for ind, (inputs, outputs) in enumerate(train_loader):
-            inputs = MoveTensorsToDevice(inputs, device)
-            outputs = MoveTensorsToDevice(outputs, device)
-            print()
+            print(sum(outputs))
 
 
 if __name__ == '__main__':
-    from SegModel.ResNet50 import ModelRun
+    from SegModel.ResNet50 import ResUNet4Cls
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     model_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model'
-    data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice'
+    data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice'
 
-    model = ModelRun(1, 4, res_num=34).to(device)
+    model = ResUNet4Cls([2, 3, 3, 3], 3, 5).to(device)
     py_path = r'/home/zhangyihong/SSHProject/ProstateXSeg/SegModel/ResNet50.py'
 
-    Train(model, device, 'ResNet34_0604', py_path)
+    Train(model, device, 'ResUNet_cls_0629', py_path)
     # CheckInput()

@@ -12,14 +12,6 @@ from CnnTools.T4T.Utility.Data import *
 from Statistics.Metric import Dice
 
 
-def ClearGraphPath(graph_path):
-    if not os.path.exists(graph_path):
-        os.mkdir(graph_path)
-    else:
-        shutil.rmtree(graph_path)
-        os.mkdir(graph_path)
-
-
 def _GetLoader(sub_list, aug_param_config, input_shape, batch_size, shuffle):
     data = DataManager(sub_list=sub_list, augment_param=aug_param_config)
     data.AddOne(Image2D(data_root + '/T2Slice', shape=input_shape))
@@ -38,34 +30,46 @@ def Test(model, device, model_folder, epoch, data_type='train'):
 
     test_df = pd.read_csv(os.path.join(data_root, '{}_name.csv'.format(data_type)))
     test_list = test_df.values.tolist()[0]
-    data_loader, data_batches = _GetLoader(test_list, None, (200, 200), 48, False)
+    data_loader, data_batches = _GetLoader(test_list, None, (192, 192), 48, False)
 
     model.to(device)
     model.load_state_dict(torch.load(model_folder + '/{}'.format(epoch)))
 
     pz_list, cg_list, u_list, asmf_list = [], [], [], []
     pz_label, cg_label, u_label, asmf_label = [], [], [], []
+    preds_seg, label_seg = [], []
+    t2_list = []
     model.eval()
     with torch.no_grad():
         for ind, (inputs, outputs) in enumerate(data_loader):
+            t2_list.extend(list(inputs.numpy()))
             inputs = MoveTensorsToDevice(inputs, device)
 
             preds = model(inputs)
-            preds = torch.sigmoid(preds)
+            if isinstance(preds, tuple):
+                cls = preds[0]
+                seg = preds[1]
+                preds_seg.extend(list(seg.cpu().data.numpy()))
+                label_seg.extend(list(outputs[4].numpy()))
+            else:
+                cls = preds
 
-            pz_list.extend(preds[:, 0].cpu().data.numpy().tolist())
+            pz_list.extend(cls[:, 0].cpu().data.numpy().tolist())
             pz_label.extend(outputs[0].numpy().tolist())
-            cg_list.extend(preds[:, 1].cpu().data.numpy().tolist())
+            cg_list.extend(cls[:, 1].cpu().data.numpy().tolist())
             cg_label.extend(outputs[1].numpy().tolist())
-            u_list.extend(preds[:, 2].cpu().data.numpy().tolist())
+            u_list.extend(cls[:, 2].cpu().data.numpy().tolist())
             u_label.extend(outputs[2].numpy().tolist())
-            asmf_list.extend(preds[:, 3].cpu().data.numpy().tolist())
+            asmf_list.extend(cls[:, 3].cpu().data.numpy().tolist())
             asmf_label.extend(outputs[3].numpy().tolist())
 
     result_folder = os.path.join(model_folder, 'Result')
     if not os.path.exists(os.path.join(model_folder, 'Result')):
         os.mkdir(os.path.join(model_folder, 'Result'))
-
+    if len(preds_seg) != 0:
+        np.save(os.path.join(result_folder, '{}_seg_preds.npy'.format(data_type)), np.array(preds_seg))
+        np.save(os.path.join(result_folder, '{}_seg_label.npy'.format(data_type)), np.array(label_seg, dtype=np.int))
+    np.save(os.path.join(result_folder, '{}_t2.npy'.format(data_type)), np.array(t2_list))
     np.save(os.path.join(result_folder, '{}_pz_preds.npy'.format(data_type)), np.array(pz_list))
     np.save(os.path.join(result_folder, '{}_pz_label.npy'.format(data_type)), np.array(pz_label, dtype=np.int))
     np.save(os.path.join(result_folder, '{}_cg_preds.npy'.format(data_type)), np.array(cg_list))
@@ -74,57 +78,6 @@ def Test(model, device, model_folder, epoch, data_type='train'):
     np.save(os.path.join(result_folder, '{}_u_label.npy'.format(data_type)), np.array(u_label, dtype=np.int))
     np.save(os.path.join(result_folder, '{}_asmf_preds.npy'.format(data_type)), np.array(asmf_list))
     np.save(os.path.join(result_folder, '{}_asmf_label.npy'.format(data_type)), np.array(asmf_label, dtype=np.int))
-
-
-def TestClsSeg(model, device, model_folder, epoch, data_type='train'):
-    torch.autograd.set_detect_anomaly(True)
-
-    df = pd.read_csv(os.path.join(data_root, '{}_name.csv'.format(data_type)))
-    data_list = df.values.tolist()[0]
-    data_loader, data_batches = _GetLoader(data_list, None, (192, 192), 48, False)
-
-    model.to(device)
-    model.load_state_dict(torch.load(model_folder + '/{}'.format(epoch)))
-
-    pz_list, cg_list, u_list, asmf_list = [], [], [], []
-    pz_label, cg_label, u_label, asmf_label = [], [], [], []
-    seg_label, seg_pred = [], []
-
-    model.eval()
-    with torch.no_grad():
-        for ind, (inputs, outputs) in enumerate(data_loader):
-            inputs = MoveTensorsToDevice(inputs, device)
-
-            preds, seg = model(inputs)
-
-            preds = torch.sigmoid(preds)
-            pz_list.extend(preds[:, 0].cpu().data.numpy().tolist())
-            pz_label.extend(outputs[0].numpy().tolist())
-            cg_list.extend(preds[:, 1].cpu().data.numpy().tolist())
-            cg_label.extend(outputs[1].numpy().tolist())
-            u_list.extend(preds[:, 2].cpu().data.numpy().tolist())
-            u_label.extend(outputs[2].numpy().tolist())
-            asmf_list.extend(preds[:, 3].cpu().data.numpy().tolist())
-            asmf_label.extend(outputs[3].numpy().tolist())
-
-            seg = torch.softmax(seg, dim=1)
-            seg_pred.extend(list(seg.cpu().data.numpy()))
-            seg_label.extend(list(outputs[4].numpy()))
-
-    result_folder = os.path.join(model_folder, 'Result')
-    if not os.path.exists(os.path.join(model_folder, 'Result')):
-        os.mkdir(os.path.join(model_folder, 'Result'))
-
-    np.save(os.path.join(result_folder, '{}_pz_preds.npy'.format(data_type)), np.array(pz_list))
-    np.save(os.path.join(result_folder, '{}_pz_label.npy'.format(data_type)), np.array(pz_label, dtype=np.int))
-    np.save(os.path.join(result_folder, '{}_cg_preds.npy'.format(data_type)), np.array(cg_list))
-    np.save(os.path.join(result_folder, '{}_cg_label.npy'.format(data_type)), np.array(cg_label, dtype=np.int))
-    np.save(os.path.join(result_folder, '{}_u_preds.npy'.format(data_type)), np.array(u_list))
-    np.save(os.path.join(result_folder, '{}_u_label.npy'.format(data_type)), np.array(u_label, dtype=np.int))
-    np.save(os.path.join(result_folder, '{}_asmf_preds.npy'.format(data_type)), np.array(asmf_list))
-    np.save(os.path.join(result_folder, '{}_asmf_label.npy'.format(data_type)), np.array(asmf_label, dtype=np.int))
-    np.save(os.path.join(result_folder, '{}_seg_preds.npy'.format(data_type)), np.array(seg_pred))
-    np.save(os.path.join(result_folder, '{}_seg_label.npy'.format(data_type)), np.array(seg_label, dtype=np.int))
 
 
 def ComputeAUC(result_folder, data_type='train'):
@@ -149,7 +102,7 @@ def ComputeAUC(result_folder, data_type='train'):
     bc.Run(asmf_preds, asmf_label)
 
 
-def ComputeClassAUC(result_folder, data_type='pz'):
+def ShowROC(result_folder, data_type='pz'):
     train_preds = np.load(os.path.join(result_folder, 'train_{}_preds.npy'.format(data_type))).tolist()
     train_label = np.load(os.path.join(result_folder, 'train_{}_label.npy'.format(data_type))).tolist()
     val_preds = np.load(os.path.join(result_folder, 'val_{}_preds.npy'.format(data_type))).tolist()
@@ -215,25 +168,23 @@ def ComputeDice(result_folder):
 
 
 if __name__ == '__main__':
-    from SegModel.ResNet50 import ModelRun
+    from SegModel.ResNet50 import *
 
     device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
 
     model_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model'
-    data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice'
+    data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice'
 
-    model = ModelRun(1, 4, res_num=34, seg=True).to(device)
+    model = ResUNet4Cls([2, 3, 3, 3], 3, 5).to(device)
 
-    # model_folder = os.path.join(model_root, 'ResNet34_0604')
-    # epoch = '16-7.197602.pt'
-    model_folder = os.path.join(model_root, 'ResUNet34_0616')
-    epoch = '44-7.613293.pt'
-    # TestClsSeg(model, device, model_folder, epoch, data_type='train')
-    # TestClsSeg(model, device, model_folder, epoch, data_type='val')
-    # TestClsSeg(model, device, model_folder, epoch, data_type='test')
+    model_folder = os.path.join(model_root, 'ResUNet_cls_0629')
+    epoch = '36-5.423163.pt'
+    # Test(model, device, model_folder, epoch, data_type='train')
+    # Test(model, device, model_folder, epoch, data_type='val')
+    # Test(model, device, model_folder, epoch, data_type='test')
     # ComputeAUC(os.path.join(model_folder, 'Result'), data_type='test')
-    # ComputeClassAUC(os.path.join(model_folder, 'Result'), data_type='pz')
-    # ComputeClassAUC(os.path.join(model_folder, 'Result'), data_type='cg')
-    # ComputeClassAUC(os.path.join(model_folder, 'Result'), data_type='u')
-    # ComputeClassAUC(os.path.join(model_folder, 'Result'), data_type='asmf')
+    # ShowROC(os.path.join(model_folder, 'Result'), data_type='pz')
+    # ShowROC(os.path.join(model_folder, 'Result'), data_type='cg')
+    # ShowROC(os.path.join(model_folder, 'Result'), data_type='u')
+    # ShowROC(os.path.join(model_folder, 'Result'), data_type='asmf')
     ComputeDice(os.path.join(model_folder, 'Result'))

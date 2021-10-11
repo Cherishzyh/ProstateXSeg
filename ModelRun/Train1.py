@@ -1,6 +1,4 @@
 import shutil
-import os
-import scipy.signal as signal
 import matplotlib.pyplot as plt
 
 import torch
@@ -16,12 +14,7 @@ from CnnTools.T4T.Utility.CallBacks import EarlyStopping
 from CnnTools.T4T.Utility.Initial import HeWeightInit
 from CnnTools.T4T.Utility.Loss import FocalLoss
 
-from SegModel.UNet import UNet, UNet25D
-from SegModel.MultiSeg import MultiSegPlus
-from SegModel.AttenUnet import AttenUNet
-from ModelfromGitHub.UNet.unet_model import UNet25D
-from SegModel.WNet import WNet2_5D
-from Statistics.Loss import DiceLoss
+from Statistics.Loss import DistLoss
 from Statistics.Metric import Dice
 
 
@@ -38,6 +31,7 @@ def _GetLoader(sub_list, aug_param_config, input_shape, batch_size, shuffle):
     data = DataManager(sub_list=sub_list, augment_param=aug_param_config)
     data.AddOne(Image2D(data_root + '/T2Slice', shape=input_shape))
     data.AddOne(Image2D(data_root + '/RoiSlice', shape=input_shape, is_roi=True), is_input=False)
+    data.AddOne(Image2D(data_root + '/DistanceMap', shape=input_shape), is_input=False)
     loader = DataLoader(data, batch_size=batch_size, shuffle=shuffle)
     batches = np.ceil(len(data.indexes) / batch_size)
     return loader, batches
@@ -50,10 +44,11 @@ def Train(model, device, model_name, net_path):
     total_epoch = 10000
     batch_size = 36
     model_folder = MakeFolder(model_root + '/{}'.format(model_name))
-    CopyFile(net_path, os.path.join(model_folder, 'model.py'), is_replace=True)
-
-
     ClearGraphPath(model_folder)
+    if net_path.endswith('.py'):
+        CopyFile(net_path, os.path.join(model_folder, 'model.py'), is_replace=True)
+    else:
+        shutil.copytree(net_path, os.path.join(model_folder, 'model'))
 
     param_config = {
         RotateTransform.name: {'theta': ['uniform', -10, 10]},
@@ -62,8 +57,8 @@ def Train(model, device, model_name, net_path):
         ZoomTransform.name: {'horizontal_zoom': ['uniform', 0.95, 1.05],
                              'vertical_zoom': ['uniform', 0.95, 1.05]},
         FlipTransform.name: {'horizontal_flip': ['choice', True, False]},
-        BiasTransform.name: {'center': ['uniform', -1., 1., 2],
-                             'drop_ratio': ['uniform', 0., 1.]},
+        # BiasTransform.name: {'center': ['uniform', -1., 1., 2],
+        #                      'drop_ratio': ['uniform', 0., 1.]},
         NoiseTransform.name: {'noise_sigma': ['uniform', 0., 0.03]},
         ContrastTransform.name: {'factor': ['uniform', 0.8, 1.2]},
         GammaTransform.name: {'gamma': ['uniform', 0.8, 1.2]},
@@ -82,8 +77,8 @@ def Train(model, device, model_name, net_path):
     model.apply(HeWeightInit)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    criterion1 = torch.nn.CrossEntropyLoss()
-    criterion2 = DiceLoss()
+    focalloss = FocalLoss()
+    distloss = DistLoss()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.5,
                                                            verbose=True)
@@ -103,30 +98,22 @@ def Train(model, device, model_name, net_path):
 
         model.train()
         for ind, (inputs, outputs) in enumerate(train_loader):
-            #
-            outputs_nocoding = torch.argmax(outputs, dim=1)
-
             inputs = MoveTensorsToDevice(inputs, device)
-            outputs_nocoding = MoveTensorsToDevice(outputs_nocoding, device)
-            outputs = MoveTensorsToDevice(outputs.int(), device)
+            label = MoveTensorsToDevice(outputs[0].int(), device)
+            dismap = MoveTensorsToDevice(outputs[1], device)
 
             preds = model(inputs)
-            # Crossentropy Loss: preds: logits(没有做softmax)
-            #                    labels: 没有做编码
-            # Dice Loss: preds: 要做softmax
-            #            labels: 要做编码，格式和preds相同
             if isinstance(preds, tuple):
                 preds = preds[-1]
-            softmax_preds = F.softmax(preds, dim=1)
 
-            train_dice.append(Dice(softmax_preds.cpu().data.numpy(), outputs.cpu().data.numpy()))
-            train_dice_pz.append(Dice(softmax_preds.cpu().data.numpy()[:, 1], outputs.cpu().data.numpy()[:, 1]))
-            train_dice_cg.append(Dice(softmax_preds.cpu().data.numpy()[:, 2], outputs.cpu().data.numpy()[:, 2]))
-            train_dice_U.append(Dice(softmax_preds.cpu().data.numpy()[:, 3], outputs.cpu().data.numpy()[:, 3]))
-            train_dice_AFMS.append(Dice(softmax_preds.cpu().data.numpy()[:, 4], outputs.cpu().data.numpy()[:, 4]))
+            train_dice.append(Dice(preds.cpu().data.numpy(), label.cpu().data.numpy()))
+            train_dice_pz.append(Dice(preds.cpu().data.numpy()[:, 1], label.cpu().data.numpy()[:, 1]))
+            train_dice_cg.append(Dice(preds.cpu().data.numpy()[:, 2], label.cpu().data.numpy()[:, 2]))
+            train_dice_U.append(Dice(preds.cpu().data.numpy()[:, 3], label.cpu().data.numpy()[:, 3]))
+            train_dice_AFMS.append(Dice(preds.cpu().data.numpy()[:, 4], label.cpu().data.numpy()[:, 4]))
 
-            loss1 = criterion1(preds, outputs_nocoding)
-            loss2 = criterion2(softmax_preds, outputs)
+            loss1 = focalloss(preds, label)*batch_size
+            loss2 = distloss(dismap, preds)
             loss = loss1 + loss2
 
             optimizer.zero_grad()
@@ -140,26 +127,22 @@ def Train(model, device, model_name, net_path):
         model.eval()
         with torch.no_grad():
             for ind, (inputs, outputs) in enumerate(val_loader):
-
-                outputs_nocoding = torch.argmax(outputs, dim=1)
-
                 inputs = MoveTensorsToDevice(inputs, device)
-                outputs_nocoding = MoveTensorsToDevice(outputs_nocoding, device)
-                outputs = MoveTensorsToDevice(outputs.int(), device)
+                label = MoveTensorsToDevice(outputs[0].int(), device)
+                dismap = MoveTensorsToDevice(outputs[1], device)
 
                 preds = model(inputs)
                 if isinstance(preds, tuple):
                     preds = preds[-1]
-                softmax_preds = F.softmax(preds, dim=1)
 
-                val_dice.append(Dice(softmax_preds.cpu().data.numpy(), outputs.cpu().data.numpy()))
-                val_dice_pz.append(Dice(softmax_preds.cpu().data.numpy()[:, 1], outputs.cpu().data.numpy()[:, 1]))
-                val_dice_cg.append(Dice(softmax_preds.cpu().data.numpy()[:, 2], outputs.cpu().data.numpy()[:, 2]))
-                val_dice_U.append(Dice(softmax_preds.cpu().data.numpy()[:, 3], outputs.cpu().data.numpy()[:, 3]))
-                val_dice_AFMS.append(Dice(softmax_preds.cpu().data.numpy()[:, 4], outputs.cpu().data.numpy()[:, 4]))
+                val_dice.append(Dice(preds.cpu().data.numpy(), label.cpu().data.numpy()))
+                val_dice_pz.append(Dice(preds.cpu().data.numpy()[:, 1], label.cpu().data.numpy()[:, 1]))
+                val_dice_cg.append(Dice(preds.cpu().data.numpy()[:, 2], label.cpu().data.numpy()[:, 2]))
+                val_dice_U.append(Dice(preds.cpu().data.numpy()[:, 3], label.cpu().data.numpy()[:, 3]))
+                val_dice_AFMS.append(Dice(preds.cpu().data.numpy()[:, 4], label.cpu().data.numpy()[:, 4]))
 
-                loss1 = criterion1(preds, outputs_nocoding)
-                loss2 = criterion2(softmax_preds, outputs)
+                loss1 = focalloss(preds, label) * batch_size
+                loss2 = distloss(dismap, preds)
                 loss = loss1 + loss2
 
                 val_loss += loss.item()
@@ -174,16 +157,23 @@ def Train(model, device, model_name, net_path):
         writer.add_scalars('Loss',
                            {'train_loss': train_loss / train_batches,
                             'val_loss': val_loss / val_batches}, epoch + 1)
-        writer.add_scalars('Crossentropy Loss',
+        writer.add_scalars('Focal Loss Loss',
                            {'train_loss': train_loss1 / train_batches,
                             'val_loss': val_loss1 / val_batches}, epoch + 1)
-        writer.add_scalars('Dice Loss',
+        writer.add_scalars('Dist Loss',
                            {'train_loss': train_loss2 / train_batches,
                             'val_loss': val_loss2 / val_batches}, epoch + 1)
-
         writer.add_scalars('Dice',
-                           {'train_loss': np.sum(train_dice) / len(train_dice),
-                            'val_loss': np.sum(val_dice) / len(val_dice)}, epoch + 1)
+                           {'train_dice_pro': sum(train_dice) / train_batches,
+                            'train_dice_pz': sum(train_dice_pz) / train_batches,
+                            'train_dice_cg': sum(train_dice_cg) / train_batches,
+                            'train_dice_u': sum(train_dice_U) / train_batches,
+                            'train_dice_amsf': sum(train_dice_AFMS) / train_batches,
+                            'val_dice_pro': sum(val_dice) / val_batches,
+                            'val_dice_pz': sum(val_dice_pz) / val_batches,
+                            'val_dice_cg': sum(val_dice_cg) / val_batches,
+                            'val_dice_u': sum(val_dice_U) / val_batches,
+                            'val_dice_amsf': sum(val_dice_AFMS) / val_batches}, epoch + 1)
 
         print('*************************************** Epoch {} | (◕ᴗ◕✿) ***************************************'.format(epoch + 1))
         print('    dice pz: {:.3f},     dice cg: {:.3f},     dice U: {:.3f},     dice AFMS: {:.3f}'.
@@ -629,16 +619,15 @@ def CheckInput():
 
 
 if __name__ == '__main__':
-    from SegModel.MultiTask import Multi_UNet3
+    from SegModel.UNet_Git.unet_model import UNet
 
     device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
 
     model_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model'
     data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice'
 
-    model = Multi_UNet3(1, 1, 1, 5)
-    # py_path = r'/home/zhangyihong/SSHProject/ProstateXSeg/ModelfromGitHub/UNet/unet_model.py'
-    py_path = r'/home/zhangyihong/SSHProject/ProstateXSeg/SegModel/MultiTask.py'
+    model = UNet(1, 5)
+    py_path = r'/home/zhangyihong/SSHProject/ProstateXSeg/SegModel/UNet_Git'
 
-    Train1(model, device, 'MultiTask_0423_v3', py_path)
+    Train(model, device, 'UNet_0626_focal_dist', py_path)
     # CheckInput()

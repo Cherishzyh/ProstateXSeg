@@ -1,8 +1,10 @@
 import torch
+
 import matplotlib.pyplot as plt
-
-from CnnTools.T4T.Utility.Data import *
-
+import numpy as np
+from scipy.ndimage import median_filter
+from T4T.Utility.Data import *
+from MeDIT.Others import IterateCase
 
 from Statistics.Metric import Dice
 
@@ -12,8 +14,8 @@ class ProstateXSeg():
         self.input_shape = input_shape
 
     def CropData(self, data, crop_shape, center, is_roi=False, slice_num=1):
-        from BasicTool.MeDIT.ArrayProcess import ExtractPatch
-        from BasicTool.MeDIT.ArrayProcess import ExtractBlock
+        from MeDIT.ArrayProcess import ExtractPatch
+        from MeDIT.ArrayProcess import ExtractBlock
 
         # Crop
         if len(data.shape) == 2:
@@ -71,16 +73,36 @@ class ProstateXSeg():
         roi_class = [0, 1, 2, 3, 4]
         for index in roi_class:
             roi_list.append((roi == index).astype(int))
-        return np.array(roi_list, dtype=np.int)
+        return np.array(roi_list, dtype=np.int32)
+
+    def KeepLargest(self, roi):
+        from scipy import ndimage
+        new_mask = np.zeros(roi.shape)
+        if np.all(roi == 0):
+            return new_mask
+        else:
+            for cls in range(1, roi.shape[1]):
+                if np.all(roi[:, cls] == 0):
+                    new_mask[:, cls] = np.zeros_like(roi[:, cls])
+                else:
+                    label_im, nb_labels = ndimage.label(roi[:, cls])
+                    max_volume = [(label_im == index).sum() for index in range(1, nb_labels + 1)]
+                    index = np.argmax(max_volume)
+                    new_mask[:, cls][label_im == index + 1] = 1
+            new_mask[:, 0] = 1 - np.sum(new_mask, axis=1)
+            assert np.all(np.sum(new_mask, axis=1) == 1)
+            return new_mask
 
     def Nii2NPY(self, case, data_path, des_path, slice_num=1, is_save=False):
-        from BasicTool.MeDIT.SaveAndLoad import LoadImage
+        from MeDIT.SaveAndLoad import LoadImage
 
         t2_path = os.path.join(data_path, 't2.nii')
         roi_path = os.path.join(data_path, 'roi.nii.gz')
+        # roi_path = os.path.join(data_path, 'roi.nii')
+        # roi_path = os.path.join(data_path, 'ProstateROI_TrumpetNet.nii.gz')
 
         _, t2, _ = LoadImage(t2_path)
-        _, roi, _ = LoadImage(roi_path, dtype=np.int)
+        _, roi, _ = LoadImage(roi_path, dtype=np.int32)
         # t2 = t2.transpose((2, 0, 1))
         # roi = roi.transpose((2, 0, 1))
 
@@ -143,31 +165,37 @@ class ProstateXSeg():
                     roi_arr = roi_arr[np.newaxis, ...]
                 else:
                     other_roi = np.sum(roi_arr[2:, ...], axis=0)
-                    roi_arr = np.concatenate([roi_arr[0:1, ...], roi_arr[1:2, ...], other_roi[np.newaxis, ...]], axis=0)
+                    roi_arr = np.concatenate([roi_arr[0:2, ...], other_roi[np.newaxis, ...]], axis=0)
                     roi_arr = roi_arr[np.newaxis, ...]
 
             return t2_arr, roi_arr
 
-    def run(self, case, model, model_path, weights_path, inputs, outputs, is_save=False):
-        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        # device = torch.device('cpu')
-        model.to(device)
+    def run(self, case, model, model_path, inputs, outputs, is_save=False, weights_list=None):
+        device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+        if weights_list is None:
+            weights_list = [one for one in IterateCase(model_path, only_folder=False, verbose=0) if one.is_file()]
+            weights_list = [one for one in weights_list if str(one).endswith('.pt')]
+            if len(weights_list) == 0:
+                raise Exception
+            weights_list = sorted(weights_list, key=lambda x: os.path.getctime(str(x)))
+            weights_path = weights_list[-1]
+        else:
+            weights_path = weights_list
+
         weights_path = os.path.join(model_path, weights_path)
-
+        model.to(device)
         model.load_state_dict(torch.load(weights_path))
-
         model.eval()
 
         if isinstance(inputs, np.ndarray):
             inputs = torch.from_numpy(inputs)
-        # if isinstance(outputs, np.ndarray):
-        #     outputs = torch.from_numpy(outputs)
 
         inputs = MoveTensorsToDevice(inputs, device)
-        # outputs = MoveTensorsToDevice(outputs, device)
 
         print('****** predicting {} | (｀・ω・´) ****** '.format(case))
-        preds = model(inputs)
+
+        with torch.no_grad():
+            preds = model(inputs)
 
         if is_save:
             result_folder = os.path.join(model_path, 'CaseResult')
@@ -201,7 +229,7 @@ def slice_test():
 
         if not isinstance(t2_arr, np.ndarray):
             continue
-        # UNet
+        # UNet_Git
         preds = seg.run(case, model,
                         model_path=os.path.join(model_folder, 'UNet_0311_step1'),
                         weights_path='18--11.511773.pt',
@@ -241,71 +269,106 @@ def slice_test():
 
 if __name__ == '__main__':
 
-    from SegModel.AttenUnet import AttenUNet2_5D
-    from ModelfromGitHub.UNet.unet_model import UNet25D, AttenUNet25D
-    from SegModel.WNet import WNet2_5D
-    from SegModel.UNet import UNet25D
+    # from SegModel.UNet_Git.unet_model import UNet25D
+    from SegModel.UNet import UNet25D4Pool
     from SegModel.MultiTask import *
+    from SegModel.AMTANet import AMTA_Net
+    from SegModel.ResNet50 import *   # shape=(192, 192)
     from PreProcess.Nii2NPY import ROIOneHot
-    from SegModel.ResNet50 import ModelRun
 
     # data_path = r'W:\Public Datasets\PROSTATEx_Seg\Seg'
 
     seg = ProstateXSeg((192, 192))
+    # data_path = r'/home/zhangyihong/Documents/ProstateECE/OriginalData/ResampleData'
+    # save_folder = r'/home/zhangyihong/Documents/ProstateECE/NPYNoDivide/RegionSegSlice'
     data_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OriginalData'
     model_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model'
+    save_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/UNet25D_0915/Image'
 
-    # model = UNet25D(1, 5)
+    model = UNet25D4Pool(1, 3)
     # model = WNet2_5D(1, 3, 1, 5)
     # model = AttenUNet25D(1, 5)
     # model = Multi_UNet3(1, 1, 1, 5)
-    model = ModelRun(1, 4, res_num=34, seg=True)
-
-    dice1_list, dice2_list, dice3_list, dice4_list, dice5_list = [], [], [], [], []
-
-    # df = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice', 'train_case_name.csv'))
-    # df = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice', 'val_case_name.csv'))
-    df = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice', 'test_case_name.csv'))
-    case_list = df.values.tolist()[0]
-    for case in case_list:
-        t2_arr, roi_arr = seg.Nii2NPY(case, os.path.join(data_path, case), r'', slice_num=1)
-        # UNet
-        # 13-2.679143.pt
-        # 26-1.161448.pt   UNet_0330
-        # 31-1.444248.pt   Atten_0406
-        # 19-0.895105.pt   UNet_0407
-        # 35-3.245164.pt   WNet_0407
-        # 21-0.788716.pt   AttenUNet_0408
-        # 22-2.948752.pt   WNet_0408
-        # 44-7.613293.pt   ResUNet34_0616
-
-        preds = seg.run(case, model,
-                        model_path=os.path.join(model_folder, 'ResUNet34_0616'),
-                        weights_path='44-7.613293.pt',
-                        inputs=t2_arr,
-                        outputs=roi_arr,
-                        is_save=False)
-        if isinstance(preds, tuple):
-            preds = preds[-1]
-        preds = torch.softmax(preds, dim=1)
-        preds = torch.argmax(preds, dim=1).cpu().data.numpy()
-        preds = ROIOneHot(preds)
-        # roi_arr = np.argmax(roi_arr, axis=1)
-        # roi_arr = np.clip(roi_arr, a_min=0, a_max=2)
-        # roi_arr = ROIOneHot(roi_arr, roi_class=[0, 1, 2])
-
-        dice1_list.append(Dice(preds[:, 0, ...], roi_arr[:, 0, ...]))
-        dice2_list.append(Dice(preds[:, 1, ...], roi_arr[:, 1, ...]))
-        dice3_list.append(Dice(preds[:, 2, ...], roi_arr[:, 2, ...]))
-        dice4_list.append(Dice(preds[:, 3, ...], roi_arr[:, 3, ...]))
-        dice5_list.append(Dice(preds[:, 4, ...], roi_arr[:, 4, ...]))
-
-    print('{:.3f} / {:.3f} / {:.3f} / {:.3f} / {:.3f}'.format(sum(dice1_list) / len(dice1_list), sum(dice2_list) / len(dice2_list),
-                                                              sum(dice3_list) / len(dice3_list), sum(dice4_list) / len(dice4_list),
-                                                              sum(dice5_list) / len(dice5_list)))
+    # model = ModelRun(1, 4, res_num=34, seg=True)
+    # model = ResUNetCA([2, 3, 3, 3], 3, 5)
 
 
+    df_train = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice', 'train_case_name.csv'))
+    df_val = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice', 'val_case_name.csv'))
+    df_test = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice', 'test_case_name.csv'))
 
+    for i, df in enumerate([df_train, df_val, df_test]):
+        if i < 2:
+            continue
+
+        dice1_list, dice2_list, dice3_list, dice4_list, dice5_list = [], [], [], [], []
+
+        case_list = df.values.tolist()[0]
+        # case_list = os.listdir(data_path)
+        for case in sorted(case_list):
+            t2_arr, roi_arr = seg.Nii2NPY(case, os.path.join(data_path, case), r'', slice_num=3)
+            preds = seg.run(case, model,
+                            model_path=os.path.join(model_folder, 'UNet25D_0915'),
+                            inputs=t2_arr,
+                            outputs=roi_arr,
+                            is_save=False)
+            if isinstance(preds, tuple):
+                preds = preds[-1]
+
+
+            roi_arr = np.concatenate([roi_arr[:, :2], np.sum(roi_arr[:, 2:], axis=1, keepdims=True)], axis=1)
+            preds = torch.softmax(preds, dim=1)
+            preds = torch.argmax(preds, dim=1).cpu().numpy()
+            preds = ROIOneHot(preds)
+            preds = seg.KeepLargest(preds)
+            preds = median_filter(preds, size=(1, 1, 3, 3))
+            # dice2_list.append(Dice(preds[:, 1, ...], roi_arr[:, 1, ...]))
+            # dice3_list.append(Dice(preds[:, 2, ...], roi_arr[:, 2, ...]))
+            # index = np.argmax(np.sum(roi_arr[:, 1], axis=(1, 2)))
+            # np.save(os.path.join(save_folder, '{}_slice{}.npy').format(case, index), preds[index, :3])
+
+            for index in range(t2_arr.shape[0]):
+                plt.figure(figsize=(6, 6), dpi=100)
+                # plt.title(case)
+                plt.imshow(t2_arr[index, 1], cmap='gray')
+                plt.contour(roi_arr[index, 1], colors='r')
+                plt.contour(roi_arr[index, 2], colors='b')
+                plt.contour(preds[index, 1], colors='g')
+                plt.contour(preds[index, 2], colors='y')
+                plt.gca().xaxis.set_major_locator(plt.NullLocator())
+                plt.gca().yaxis.set_major_locator(plt.NullLocator())
+                plt.savefig(os.path.join(save_folder, '{}_{}.jpg'.format(case, index)), pad_inches=0)
+                plt.close()
+        # break
+        #     preds = torch.squeeze(torch.sigmoid(preds)).cpu().numpy()
+        #     dice1_list.append(Dice(preds, roi_arr[:, -1]))
+        # print('{:.3f}'.format(sum(dice1_list) / len(dice1_list)))
+
+
+            # dice1_list.append(Dice(preds[:, 0, ...], roi_arr[:, 0, ...]))
+            # dice2_list.append(Dice(preds[:, 1, ...], roi_arr[:, 1, ...]))
+            # dice3_list.append(Dice(preds[:, 2, ...], roi_arr[:, 2, ...]))
+            # dice4_list.append(Dice(preds[:, 3, ...], roi_arr[:, 3, ...]))
+            # dice5_list.append(Dice(preds[:, 4, ...], roi_arr[:, 4, ...]))
+        # plt.figure(figsize=(8, 6))
+        # plt.subplot(221)
+        # plt.title('mean dice of PZ: {:.3f}'.format(sum(dice2_list) / len(dice2_list)))
+        # plt.hist(dice2_list, bins=20)
+        # plt.subplot(222)
+        # plt.title('mean dice of CG: {:.3f}'.format(sum(dice3_list) / len(dice3_list)))
+        # plt.hist(dice3_list, bins=20)
+        # plt.subplot(223)
+        # plt.title('mean dice of U: {:.3f}'.format(sum(dice4_list) / len(dice4_list)))
+        # plt.hist(dice4_list, bins=20)
+        # plt.subplot(224)
+        # plt.title('mean dice of ASMF: {:.3f}'.format(sum(dice5_list) / len(dice5_list)))
+        # plt.hist(dice5_list, bins=20)
+        # plt.show()
+        # print('{:.3f} / {:.3f} / {:.3f} / {:.3f} / {:.3f}'.format(sum(dice1_list) / len(dice1_list), sum(dice2_list) / len(dice2_list),
+        #                                                           sum(dice3_list) / len(dice3_list), sum(dice4_list) / len(dice4_list),
+        #                                                           sum(dice5_list) / len(dice5_list)))
+
+        # print('{:.3f} / {:.3f} /'.format(sum(dice2_list) / len(dice2_list), sum(dice3_list) / len(dice3_list)))
 
 
 
