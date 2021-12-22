@@ -190,24 +190,36 @@ class Decoding(nn.Module):
 
 
 class Decoding4SuccessfulModel(nn.Module):
-    def __init__(self, n_classes, filters, factor, bilinear=True):
+    def __init__(self, n_classes, filters, bilinear=True):
         super(Decoding4SuccessfulModel, self).__init__()
 
-        self.up1 = Up(filters * 16*3, filters * 8 // factor, bilinear)
-        self.up2 = Up(filters * 16, filters * 4 // factor, bilinear)
-        self.up3 = Up(filters * 8, filters * 2 // factor, bilinear)
-        self.up4 = Up(filters * 4, filters, bilinear)
+        self.up1 = Up(512, 256//2, bilinear)
+        self.up2 = Up(256, 64, bilinear)
+        self.up3 = Up(128, 32, bilinear)
+        self.up4 = Up(64, 32, bilinear)
+
+        self.conv1 = nn.Conv2d(in_channels=256*3, out_channels=256, kernel_size=1, bias=False)
+        self.conv2 = nn.Conv2d(in_channels=256*3, out_channels=256, kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(in_channels=128*3, out_channels=128, kernel_size=1, bias=False)
+        self.conv4 = nn.Conv2d(in_channels=64*3, out_channels=64, kernel_size=1, bias=False)
+        self.conv5 = nn.Conv2d(in_channels=32*3, out_channels=32, kernel_size=1, bias=False)
 
         self.outc = OutConv(filters, n_classes)
 
     def forward(self, encoding_result):
         result1, result2, result3 = encoding_result[0], encoding_result[1], encoding_result[2]
+
         x5 = torch.cat([result1[0], result2[0], result3[0]], dim=1)
         x4 = torch.cat([result1[1], result2[1], result3[1]], dim=1)
         x3 = torch.cat([result1[2], result2[2], result3[2]], dim=1)
         x2 = torch.cat([result1[3], result2[3], result3[3]], dim=1)
         x1 = torch.cat([result1[4], result2[4], result3[4]], dim=1)
 
+        x5 = self.conv1(x5)
+        x4 = self.conv2(x4)
+        x3 = self.conv3(x3)
+        x2 = self.conv4(x2)
+        x1 = self.conv5(x1)
 
         x = self.up1(x5, x4) # 128
         x = self.up2(x, x3)

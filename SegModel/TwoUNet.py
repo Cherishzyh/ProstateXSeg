@@ -7,6 +7,8 @@ from PreProcess.DistanceMapNumpy import DistanceMap
 
 
 device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+
+
 class TwoUNet(nn.Module):
     def __init__(self, in_channels, out_channels, filters=32):
         super(TwoUNet, self).__init__()

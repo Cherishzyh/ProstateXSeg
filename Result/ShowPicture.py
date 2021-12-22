@@ -5,11 +5,12 @@ import matplotlib.pyplot as plt
 
 # from SSHProject.CnnTools.T4T.Utility.Data import *
 
-from BasicTool.MeDIT.Statistics import BinarySegmentation
-from BasicTool.MeDIT.ArrayProcess import ExtractPatch
+from MeDIT.Statistics import BinarySegmentation
+from MeDIT.ArrayProcess import ExtractPatch
 
 from Statistics.Metric import Dice
 from PreProcess.Nii2NPY import ROIOneHot
+from MeDIT.Others import IterateCase
 
 
 def ShoweResult(model_folder, data_type='train', num_pred=1, save_path=r''):
@@ -19,7 +20,7 @@ def ShoweResult(model_folder, data_type='train', num_pred=1, save_path=r''):
     label_path = os.path.join(result_folder, '{}_label.npy'.format(data_type))
     t2_path = os.path.join(result_folder, '{}_t2.npy'.format(data_type))
     if num_pred == 1:
-        pred_path = os.path.join(result_folder, '{}_preds.npy'.format(data_type))
+        pred_path = os.path.join(result_folder, '{}_pred_2.npy'.format(data_type))
         label = np.load(label_path)
         pred = np.load(pred_path)
         t2 = np.load(t2_path)
@@ -426,6 +427,7 @@ def ShowBestWorseResult(dice1_list, dice2_list, dice3_list, dice4_list, preds_ar
 
 if __name__ == '__main__':
     from SegModel.ResNet50 import *
+    from SegModel.WNet import *
 
     model_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model'
     # data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice'
@@ -434,11 +436,18 @@ if __name__ == '__main__':
     t2_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice/T2Slice'
 
 
-    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
-    model = ResUNet4Cls([2, 3, 3, 3], 3, 5).to(device)
+    device = torch.device('cuda:3' if torch.cuda.is_available() else 'cpu')
+    model = WNet2_5D_weightshared(3, 3, 5).to(device)
 
-    model_folder = os.path.join(model_root, 'ResUNet_0629')
-    epoch = '13-9.513482.pt'
+    model_folder = os.path.join(model_root, 'WNet_WeightShare_1202_ce_mse')
+    weights_list = [one for one in IterateCase(model_folder, only_folder=False, verbose=0) if one.is_file()]
+    weights_list = [one for one in weights_list if str(one).endswith('.pt')]
+    if len(weights_list) == 0:
+        raise Exception
+    weights_list = sorted(weights_list, key=lambda x: os.path.getctime(str(x)))
+    weights_path = weights_list[-1]
+
+    weights_path = os.path.join(model_folder, weights_path)
 
     ShoweResult(model_folder, data_type='test', num_pred=1, save_path=os.path.join(model_folder, 'Image'))
 

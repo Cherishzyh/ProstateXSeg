@@ -12,7 +12,6 @@ from MeDIT.SaveAndLoad import LoadImage
 from MeDIT.Normalize import Normalize01
 from MeDIT.Visualization import Imshow3DArray
 
-
 def CheckDataShape():
     data_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice/RoiSlice'
     shape_list = []
@@ -223,7 +222,6 @@ def Dilate():
 # Dilate()
 
 
-
 def Show():
     folder = r'Z:\PM\Prostate301_copy'
 
@@ -290,7 +288,6 @@ def Demo():
     roi_4_flip = (roi_flip == 4).astype(int)
 
     Imshow3DArray(Normalize01(t2), roi=[Normalize01(roi_1_flip), Normalize01(roi_2_flip), Normalize01(roi_3_flip), Normalize01(roi_4_flip)])
-
 # Demo()
 
 
@@ -318,154 +315,246 @@ def Demo():
 #     # Imshow3DArray(np.concatenate([Normalize01(t2.transpose([1, 2, 0])), Normalize01(roi.transpose([1, 2, 0]))], axis=1))
 # ShowNPY()
 
-def ShowNPY():
-    folder = r'Z:\PM\Prostate301_test_npy'
-    for index, case in enumerate(os.listdir(folder)):
-        case = 'PM03'
-        case_folder = os.path.join(folder, case)
-        t2_path = os.path.join(case_folder, 't2.npy')
-        t2 = np.load(t2_path).transpose([1, 2, 0])
-        # for num in range(18):
-        roi_path = os.path.join(case_folder, 'prediction_{}.npy'.format(str(0)))
-        roi = np.load(roi_path)
+# def ShowNPY():
+#     folder = r'Z:\PM\Prostate301_test_npy'
+#     for index, case in enumerate(os.listdir(folder)):
+#         case = 'PM03'
+#         case_folder = os.path.join(folder, case)
+#         t2_path = os.path.join(case_folder, 't2.npy')
+#         t2 = np.load(t2_path).transpose([1, 2, 0])
+#         # for num in range(18):
+#         roi_path = os.path.join(case_folder, 'prediction_{}.npy'.format(str(0)))
+#         roi = np.load(roi_path)
+#
+#         roi = np.argmax(roi, axis=1)
+#         roi = roi.transpose([1, 2, 0])
+#
+#         roi_1 = (roi == 1).astype(int)
+#         roi_2 = (roi == 2).astype(int)
+#         roi_3 = (roi == 3).astype(int)
+#         roi_4 = (roi == 4).astype(int)
+#
+#         Imshow3DArray(Normalize01(t2), roi=[Normalize01(roi_1), Normalize01(roi_2), Normalize01(roi_3), Normalize01(roi_4)])
 
-        roi = np.argmax(roi, axis=1)
-        roi = roi.transpose([1, 2, 0])
+
+#
+# import math
+#
+# import pylab
+#
+# import torch
+# import torch.nn as nn
+# from torch.utils.data import Dataset, DataLoader
+#
+#
+# def gen_data(N):
+#     X = np.random.randn(N, 1)
+#     w1 = 2.
+#     b1 = 8.
+#     sigma1 = 1e1  # ground truth
+#     Y1 = X.dot(w1) + b1 + sigma1 * np.random.randn(N, 1)
+#     w2 = 3
+#     b2 = 3.
+#     sigma2 = 1e0  # ground truth
+#     Y2 = X.dot(w2) + b2 + sigma2 * np.random.randn(N, 1)
+#     return X, Y1, Y2
+#
+#
+# class TrainData(Dataset):
+#
+#     def __init__(self, feature_num, X, Y1, Y2):
+#
+#         self.feature_num = feature_num
+#
+#         self.X = torch.tensor(X, dtype=torch.float32)
+#         self.Y1 = torch.tensor(Y1, dtype=torch.float32)
+#         self.Y2 = torch.tensor(Y2, dtype=torch.float32)
+#
+#     def __len__(self):
+#         return self.feature_num
+#
+#     def __getitem__(self, idx):
+#         return self.X[idx,:], self.Y1[idx,:], self.Y2[idx,:]
+#
+#
+# class MultiTaskLossWrapper(nn.Module):
+#     def __init__(self, task_num, model):
+#         super(MultiTaskLossWrapper, self).__init__()
+#         self.model = model
+#         self.task_num = task_num
+#         self.log_vars = nn.Parameter(torch.zeros((task_num)))
+#
+#     def forward(self, input, targets):
+#
+#         outputs = self.model(input)
+#
+#         precision1 = torch.exp(-self.log_vars[0])
+#         loss = torch.sum(precision1 * (targets[0] - outputs[0]) ** 2. + self.log_vars[0], -1)
+#
+#         precision2 = torch.exp(-self.log_vars[1])
+#         loss += torch.sum(precision2 * (targets[1] - outputs[1]) ** 2. + self.log_vars[1], -1)
+#
+#         loss = torch.mean(loss)
+#
+#         return loss, self.log_vars.data.tolist()
+#
+#
+# class MTLModel(torch.nn.Module):
+#     def __init__(self, n_hidden, n_output):
+#         super(MTLModel, self).__init__()
+#
+#         self.net1 = nn.Sequential(nn.Linear(1, n_hidden), nn.ReLU(), nn.Linear(n_hidden, n_output))
+#         self.net2 = nn.Sequential(nn.Linear(1, n_hidden), nn.ReLU(), nn.Linear(n_hidden, n_output))
+#
+#     def forward(self, x):
+#         return [self.net1(x), self.net2(x)]
+
+
+def ShowNii():
+    from MeDIT.Visualization import FlattenImages
+    from copy import deepcopy
+    data_folder = r'X:\PrcoessedData\ProstateX_Seg_ZYH'
+    save_folder = r'X:\RawData\ProstateX_Seg_ZYH\Data'
+    for case in os.listdir(data_folder):
+        case_path = os.path.join(data_folder, case)
+        image, data, _ = LoadImage(os.path.join(case_path, 't2_resize.nii'))
+        _, roi, _ = LoadImage(os.path.join(case_path, 'roi_resize.nii.gz'), dtype=np.int32)
+        print(case, image.GetSpacing(), image.GetSize())
+        roi_1 = deepcopy(roi)
+        roi_2 = deepcopy(roi)
+        roi_3 = deepcopy(roi)
+        roi_4 = deepcopy(roi)
+        roi_1[roi_1 != 1] = 0
+        roi_2[roi_2 != 2] = 0
+        roi_3[roi_3 != 3] = 0
+        roi_4[roi_4 != 4] = 0
+        data_flatten = FlattenImages(data.transpose((2, 0, 1)))
+        roi_flatten_1 = FlattenImages(roi_1.transpose((2, 0, 1)))
+        roi_flatten_2 = FlattenImages(roi_2.transpose((2, 0, 1)))
+        roi_flatten_3 = FlattenImages(roi_3.transpose((2, 0, 1)))
+        roi_flatten_4 = FlattenImages(roi_4.transpose((2, 0, 1)))
+        plt.figure(figsize=(8, 8), dpi=100)
+        plt.gca().xaxis.set_major_locator(plt.NullLocator())
+        plt.gca().yaxis.set_major_locator(plt.NullLocator())
+        plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+        plt.margins(0, 0)
+        plt.imshow(data_flatten, cmap='gray', vmin=0.)
+        plt.contour(roi_flatten_1, colors='r')
+        plt.contour(roi_flatten_2, colors='g')
+        plt.contour(roi_flatten_3, colors='b')
+        plt.contour(roi_flatten_4, colors='y')
+        plt.savefig(os.path.join(save_folder, '{}.jpg'.format(case)), pad_inches=0, dpi=1000)
+        plt.close()
+# ShowNii()
+
+
+def ShowNPY():
+    from MeDIT.Visualization import FlattenImages
+    from copy import deepcopy
+    data_folder = r'X:\PrcoessedData\ProstateX_Seg_ZYH\3D'
+    save_folder = r'X:\PrcoessedData\ProstateX_Seg_ZYH\3D\Image'
+    for index, case in enumerate(os.listdir(os.path.join(data_folder, 'T2Slice'))):
+        t2_path = os.path.join(data_folder, 'T2Slice/{}'.format(case))
+        t2 = np.load(t2_path).transpose([1, 2, 0])
+        roi_path = os.path.join(data_folder, 'RoiSlice/{}'.format(case))
+        roi = np.load(roi_path).transpose([1, 2, 0])
 
         roi_1 = (roi == 1).astype(int)
         roi_2 = (roi == 2).astype(int)
         roi_3 = (roi == 3).astype(int)
         roi_4 = (roi == 4).astype(int)
 
-        Imshow3DArray(Normalize01(t2), roi=[Normalize01(roi_1), Normalize01(roi_2), Normalize01(roi_3), Normalize01(roi_4)])
+        data_flatten = FlattenImages(t2.transpose((2, 0, 1)))
+        roi_flatten_1 = FlattenImages(roi_1.transpose((2, 0, 1)))
+        roi_flatten_2 = FlattenImages(roi_2.transpose((2, 0, 1)))
+        roi_flatten_3 = FlattenImages(roi_3.transpose((2, 0, 1)))
+        roi_flatten_4 = FlattenImages(roi_4.transpose((2, 0, 1)))
+        plt.figure(figsize=(8, 8), dpi=100)
+        plt.gca().xaxis.set_major_locator(plt.NullLocator())
+        plt.gca().yaxis.set_major_locator(plt.NullLocator())
+        plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+        plt.margins(0, 0)
+        plt.imshow(data_flatten, cmap='gray', vmin=0.)
+        plt.contour(roi_flatten_1, colors='r')
+        plt.contour(roi_flatten_2, colors='g')
+        plt.contour(roi_flatten_3, colors='b')
+        plt.contour(roi_flatten_4, colors='y')
+        plt.savefig(os.path.join(save_folder, '{}.jpg'.format(case.split('.npy')[0])), pad_inches=0)
+        plt.close()
 # ShowNPY()
 
 
-import math
+def Count():
+    from copy import deepcopy
+    data_folder = r'W:\Public Datasets\PROSTATEx_Seg\Seg'
+    csv_path = r'X:\CNNFormatData\ProstateX_Seg_ZYH\train_case_name.csv'
+    train_list = pd.read_csv(csv_path).values.tolist()[0]
+    csv_path = r'X:\CNNFormatData\ProstateX_Seg_ZYH\test_case_name.csv'
+    test_list = pd.read_csv(csv_path).values.tolist()[0]
+    csv_path = r'X:\CNNFormatData\ProstateX_Seg_ZYH\val_case_name.csv'
+    val_list = pd.read_csv(csv_path).values.tolist()[0]
 
-import pylab
-
-import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-
-
-def gen_data(N):
-    X = np.random.randn(N, 1)
-    w1 = 2.
-    b1 = 8.
-    sigma1 = 1e1  # ground truth
-    Y1 = X.dot(w1) + b1 + sigma1 * np.random.randn(N, 1)
-    w2 = 3
-    b2 = 3.
-    sigma2 = 1e0  # ground truth
-    Y2 = X.dot(w2) + b2 + sigma2 * np.random.randn(N, 1)
-    return X, Y1, Y2
-
-
-class TrainData(Dataset):
-
-    def __init__(self, feature_num, X, Y1, Y2):
-
-        self.feature_num = feature_num
-
-        self.X = torch.tensor(X, dtype=torch.float32)
-        self.Y1 = torch.tensor(Y1, dtype=torch.float32)
-        self.Y2 = torch.tensor(Y2, dtype=torch.float32)
-
-    def __len__(self):
-        return self.feature_num
-
-    def __getitem__(self, idx):
-        return self.X[idx,:], self.Y1[idx,:], self.Y2[idx,:]
+    total_slice, non_slice, pz_slice, tz_slice, u_slice, asf_slice = 0, 0, 0, 0, 0, 0
+    for case in os.listdir(data_folder):
+        if case in val_list:
+            case_path = os.path.join(data_folder, case)
+            # image, data, _ = LoadImage(os.path.join(case_path, 't2.nii'))
+            _, roi, _ = LoadImage(os.path.join(case_path, 'roi.nii.gz'), dtype=np.int32)
+            roi = roi[:, :, 1: -1]
+            # print(case, image.GetSpacing(), image.GetSize())
+            roi_1 = deepcopy(roi)
+            roi_2 = deepcopy(roi)
+            roi_3 = deepcopy(roi)
+            roi_4 = deepcopy(roi)
+            roi_1[roi_1 != 1] = 0 # PZ
+            roi_2[roi_2 != 2] = 0 # TZ
+            roi_3[roi_3 != 3] = 0 # U
+            roi_4[roi_4 != 4] = 0 # AFS
+            total_slice += roi.shape[2]
+            non_slice += (roi.shape[2] - np.count_nonzero(np.sum(roi, axis=(0, 1))))
+            pz_slice += np.count_nonzero(np.sum(roi_1, axis=(0, 1)))
+            tz_slice += np.count_nonzero(np.sum(roi_2, axis=(0, 1)))
+            u_slice += np.count_nonzero(np.sum(roi_3, axis=(0, 1)))
+            asf_slice += np.count_nonzero(np.sum(roi_4, axis=(0, 1)))
+    print(total_slice, non_slice, pz_slice, tz_slice, u_slice, asf_slice)
+# Count()
 
 
-class MultiTaskLossWrapper(nn.Module):
-    def __init__(self, task_num, model):
-        super(MultiTaskLossWrapper, self).__init__()
-        self.model = model
-        self.task_num = task_num
-        self.log_vars = nn.Parameter(torch.zeros((task_num)))
+# csv_path = r'X:\CNNFormatData\ProstateX_Seg_ZYH\train_name.csv'
+# train_list = pd.read_csv(csv_path).values.tolist()
+# csv_path = r'X:\CNNFormatData\ProstateX_Seg_ZYH\test_name.csv'
+# test_list = pd.read_csv(csv_path).values.tolist()
+# csv_path = r'X:\CNNFormatData\ProstateX_Seg_ZYH\val_name.csv'
+# val_list = pd.read_csv(csv_path).values.tolist()
 
-    def forward(self, input, targets):
+# data_1 = sitk.GetArrayFromImage(sitk.ReadImage(r'W:\Public Datasets\PROSTATEx_Seg\Seg\ProstateX-0180\t2.nii'))
+# data_2 = sitk.GetArrayFromImage(sitk.ReadImage(r'X:\RawData\ProstateX_Seg_ZYH\Data\ProstateX-0180\t2_resize.nii'))
+# data_3 = np.load(r'X:\PrcoessedData\ProstateX_Seg_ZYH\3D\T2Slice\ProstateX-0180.npy')
+# plt.hist(data_1.flatten(), bins=50, color='b', alpha=0.3)
+# plt.hist(data_2.flatten(), bins=50, color='r', alpha=0.3)
+# plt.hist(data_3.flatten(), bins=50, color='y', alpha=0.3)
+# plt.show()
 
-        outputs = self.model(input)
-
-        precision1 = torch.exp(-self.log_vars[0])
-        loss = torch.sum(precision1 * (targets[0] - outputs[0]) ** 2. + self.log_vars[0], -1)
-
-        precision2 = torch.exp(-self.log_vars[1])
-        loss += torch.sum(precision2 * (targets[1] - outputs[1]) ** 2. + self.log_vars[1], -1)
-
-        loss = torch.mean(loss)
-
-        return loss, self.log_vars.data.tolist()
-
-
-class MTLModel(torch.nn.Module):
-    def __init__(self, n_hidden, n_output):
-        super(MTLModel, self).__init__()
-
-        self.net1 = nn.Sequential(nn.Linear(1, n_hidden), nn.ReLU(), nn.Linear(n_hidden, n_output))
-        self.net2 = nn.Sequential(nn.Linear(1, n_hidden), nn.ReLU(), nn.Linear(n_hidden, n_output))
-
-    def forward(self, x):
-        return [self.net1(x), self.net2(x)]
-
-
-if __name__ == '__main__':
-    # np.random.seed(0)
-    #
-    # feature_num = 100
-    # nb_epoch = 2000
-    # batch_size = 20
-    # hidden_dim = 1024
-    #
-    # X, Y1, Y2 = gen_data(feature_num)
-    # pylab.figure(figsize=(3, 1.5))
-    # pylab.scatter(X[:, 0], Y1[:, 0])
-    # pylab.scatter(X[:, 0], Y2[:, 0])
-    # pylab.show()
-    # train_data = TrainData(feature_num, X, Y1, Y2)
-    # train_data_loader = DataLoader(train_data, shuffle=True, batch_size=batch_size)
-    #
-    # model = MTLModel(hidden_dim, 1)
-    #
-    # mtl = MultiTaskLossWrapper(2, model)
-    #
-    # # https://github.com/keras-team/keras/blob/master/keras/optimizers.py
-    # # k.epsilon() = keras.backend.epsilon()
-    # optimizer = torch.optim.Adam(mtl.parameters(), lr=0.001, eps=1e-07)
-    #
-    # loss_list = []
-    # for t in range(nb_epoch):
-    #     cumulative_loss = 0
-    #
-    #     for X, Y1, Y2 in train_data_loader:
-    #         loss, log_vars = mtl(X, [Y1, Y2])
-    #
-    #         optimizer.zero_grad()
-    #         loss.backward()
-    #         optimizer.step()
-    #
-    #         cumulative_loss += loss.item()
-    #
-    #     loss_list.append(cumulative_loss / batch_size)
-    #
-    # pylab.plot(loss_list)
-    # pylab.show()
-    # print(log_vars)
-    # print([math.exp(log_var) ** 0.5 for log_var in log_vars])
-
-    #
-    # folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/ThreeSlice/RoiSlice'
-    # max_row = []
-    # max_col = []
-    # for case in os.listdir(folder):
-    #     data = np.load(os.path.join(folder, case))
-    #     print()
-    #     max_row.append(np.max(np.sum(data[-1], axis=0)))
-    #     max_col.append(np.max(np.sum(data[-1], axis=1)))
-    # print(max(max_row))
-    # print(max(max_col))
-
+from copy import deepcopy
+from MeDIT.Visualization import FlattenImages
+case_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm'
+t2_path = os.path.join(case_path, 'T2')
+pz_path = os.path.join(case_path, 'PZ')
+# image, data, _ = LoadImage(os.path.join(case_path, 't2.nii'))
+# _, roi, _ = LoadImage(os.path.join(case_path, 'roi.nii.gz'), dtype=np.int32)
+# print(image.GetSpacing(), image.GetSize())
+for case in os.listdir(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm/T2'):
+    try:
+        t2 = np.load(os.path.join(t2_path, case))
+        pz = np.load(os.path.join(pz_path, case))
+        plt.figure(figsize=(8, 8), dpi=100)
+        plt.gca().xaxis.set_major_locator(plt.NullLocator())
+        plt.gca().yaxis.set_major_locator(plt.NullLocator())
+        plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+        plt.margins(0, 0)
+        plt.imshow(t2[1], cmap='gray')
+        plt.contour(pz[0], colors='r')
+        plt.savefig(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm/Image', '{}.jpg'.format(case.split('.npy')[0])), pad_inches=0)
+        plt.close()
+    except Exception as e:
+        print(e)

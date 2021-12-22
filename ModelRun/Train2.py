@@ -106,9 +106,9 @@ def TrainW(model, device, model_name, net_path):
                 loss1 = ce_loss(pred_1, torch.argmax(outputs_2Cl, dim=1)) + ce_loss(pred_2, torch.argmax(outputs, dim=1))
                 loss2 = dice_loss(pred_1_softmax, outputs_2Cl) + dice_loss(pred_2_softmax, outputs)
                 loss = loss1 + loss2
-                if epoch > 5:
-                    pred_2_2Cl = torch.cat([pred_2_softmax[:, :2], torch.sum(pred_2_softmax[:, 2:], dim=1, keepdim=True)], dim=1)
-                    loss += mse_loss(pred_1_softmax, pred_2_2Cl)
+                # if epoch > 5:
+                #     pred_2_2Cl = torch.cat([pred_2_softmax[:, :2], torch.sum(pred_2_softmax[:, 2:], dim=1, keepdim=True)], dim=1)
+                #     loss += mse_loss(pred_1_softmax, pred_2_2Cl)
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -134,10 +134,10 @@ def TrainW(model, device, model_name, net_path):
                                                                                         torch.argmax(outputs, dim=1))
                     loss2 = dice_loss(pred_1_softmax, outputs_2Cl) + dice_loss(pred_2_softmax, outputs)
                     loss = loss1 + loss2
-                    if epoch > 5:
-                        pred_2_2Cl = torch.cat(
-                            [pred_2_softmax[:, :2], torch.sum(pred_2_softmax[:, 2:], dim=1, keepdim=True)], dim=1)
-                        loss += mse_loss(pred_1_softmax, pred_2_2Cl)
+                    # if epoch > 5:
+                    #     pred_2_2Cl = torch.cat(
+                    #         [pred_2_softmax[:, :2], torch.sum(pred_2_softmax[:, 2:], dim=1, keepdim=True)], dim=1)
+                    #     loss += mse_loss(pred_1_softmax, pred_2_2Cl)
 
                     val_loss1 += loss1.item()
                     val_loss2 += loss2.item()
@@ -229,7 +229,7 @@ if __name__ == '__main__':
     # from SegModel.WNet import *
     from SegModel.SuccessfulWNet import WNet2_5D, WNet2_5D_channelcombine
 
-    device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
 
     model_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model'
     data_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm'
@@ -237,7 +237,7 @@ if __name__ == '__main__':
     model = WNet2_5D_channelcombine(3, 3, 3, 5)
     py_path = r'/home/zhangyihong/SSHProject/ProstateXSeg/SegModel/SuccessfulWNet.py'
 
-    model_name = 'WNet_1222_mse_multiply'
+    model_name = 'WNet_1222_multiply'
 
     TrainW(model, device, model_name, py_path)
     # TestW(model, device, model_name, 'train')

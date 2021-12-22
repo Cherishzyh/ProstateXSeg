@@ -4,9 +4,9 @@ import torch
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 
-from CnnTools.T4T.Utility.Data import *
-from BasicTool.MeDIT.Normalize import Normalize01
-from BasicTool.MeDIT.Visualization import FusionImage
+from T4T.Utility.Data import *
+from MeDIT.Normalize import Normalize01
+from MeDIT.Visualization import FusionImage
 
 from GradCam.grad_cam import GradCAM
 from GradCam.grad_cam_main import save_gradcam

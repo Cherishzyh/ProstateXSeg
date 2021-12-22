@@ -1,5 +1,3 @@
-import os.path
-
 import torch
 
 import matplotlib.pyplot as plt
@@ -32,6 +30,37 @@ class ProstateXSeg():
 
         return data_crop
 
+    # 后面处理的数据并没有用到Center
+    def GetCenter(self, roi):
+        roi_row = []
+        roi_column = []
+        for row in range(roi.shape[0]):
+            roi_row.append(np.sum(roi[row, ...]))
+        for column in range(roi.shape[1]):
+            roi_column.append(np.sum(roi[..., column]))
+
+        max_row = max(roi_row)
+        max_column = max(roi_column)
+        row_index = roi_row.index(max_row)
+        column_index = roi_column.index(max_column)
+
+        column = np.argmax(roi[row_index])
+        row = np.argmax(roi[..., column_index])
+        # center = [int(column + max_row // 2), int(row + max_column // 2)]
+        center = [int(row + max_column // 2), int(column + max_row // 2)]
+        return center
+
+    def GetROICenter(self, roi):
+        '''
+        :param roi: 2D roi include multi-class
+        :return: the center of entire roi
+        '''
+
+        assert len(roi.shape) == 2
+        roi_binary = (roi >= 1).astype(int)
+        center = self.GetCenter(roi_binary)
+        return center
+
     def ROIOneHot(self, roi):
         '''
         :param roi:
@@ -49,29 +78,27 @@ class ProstateXSeg():
         if np.all(roi == 0):
             return new_mask
         else:
-            for cls in range(1, roi.shape[1]):
-                if np.all(roi[:, cls] == 0):
-                    new_mask[:, cls] = np.zeros_like(roi[:, cls])
+            for cls in range(1, roi.shape[0]):
+                if np.all(roi[cls] == 0):
+                    new_mask[cls] = np.zeros_like(roi[cls])
                 else:
-                    label_im, nb_labels = ndimage.label(roi[:, cls])
+                    label_im, nb_labels = ndimage.label(roi[cls])
                     max_volume = [(label_im == index).sum() for index in range(1, nb_labels + 1)]
                     index = np.argmax(max_volume)
-                    new_mask[:, cls][label_im == index + 1] = 1
-            new_mask[:, 0] = 1 - np.sum(new_mask, axis=1)
-            assert np.all(np.sum(new_mask, axis=1) == 1)
+                    new_mask[cls][label_im == index + 1] = 1
+            new_mask[0] = 1 - np.sum(new_mask, axis=0)
+            assert np.all(np.sum(new_mask, axis=0) == 1)
             return new_mask
 
     def Nii2NPY(self, case, data_path, slice_num=1):
-        from MeDIT.Visualization import FlattenImages
-        from MeDIT.SaveAndLoad import LoadImage
+        import SimpleITK as sitk
 
         t2_path = os.path.join(data_path, 't2_resize.nii')
         roi_path = os.path.join(data_path, 'roi_resize.nii')
 
-        image, t2, _ = LoadImage(t2_path)
-        _, roi, _ = LoadImage(roi_path, dtype=np.int32)
-        t2 = t2.transpose((2, 0, 1))
-        roi = roi.transpose((2, 0, 1))
+        t2 = sitk.GetArrayFromImage(sitk.ReadImage(t2_path))
+        roi = sitk.GetArrayFromImage(sitk.ReadImage(roi_path))
+        roi = np.asarray(roi, dtype=np.int32)
 
         start_slice = int((slice_num - 1) / 2)
         end_slice = t2.shape[0] - start_slice
@@ -79,6 +106,9 @@ class ProstateXSeg():
         for slice in range(start_slice, end_slice):
             t2_slice = np.squeeze(t2[int(slice - start_slice): int(slice + start_slice)+1])
             t2_slice = self.CropData(t2_slice, self.input_shape, slice_num=slice_num)
+            # t2_slice = [self.CropData(t2[slice - 1], self.input_shape, slice_num=1),
+            #             self.CropData(t2[slice], self.input_shape, slice_num=1),
+            #             self.CropData(t2[slice + 1], self.input_shape, slice_num=1)]
             t2_slice = np.squeeze(t2_slice)
 
             roi_slice = roi[slice]
@@ -94,7 +124,33 @@ class ProstateXSeg():
 
         return np.array(t2_list), np.array(roi_list, dtype=np.int32)
 
-    def run(self, case, model, model_path, inputs, outputs, is_save=False, weights_list=None, is_multipy=False):
+    def Nii2NPY3D(self, case, data_path):
+        import SimpleITK as sitk
+        from MeDIT.ArrayProcess import Crop3DArray
+        from MeDIT.Normalize import NormalizeZ
+        from MeDIT.SaveAndLoad import LoadImage
+
+        t2_path = os.path.join(data_path, 't2_resize.nii')
+        roi_path = os.path.join(data_path, 'roi_resize.nii')
+
+        # t2 = sitk.GetArrayFromImage(sitk.ReadImage(t2_path))
+        # roi = sitk.GetArrayFromImage(sitk.ReadImage(roi_path))
+        image, t2, _ = LoadImage(t2_path)
+        _, roi, _ = LoadImage(roi_path, dtype=np.int32)
+        t2 = t2.transpose((2, 0, 1))
+        roi = roi.transpose((2, 0, 1))
+
+        t2 = np.asarray(t2, dtype=np.float32)
+        roi = np.asarray(roi, dtype=np.int32)
+
+        t2_slice = Crop3DArray(t2, (20, 192, 192))
+        roi_slice = Crop3DArray(roi, (20, 192, 192))
+        t2_slice = NormalizeZ(t2_slice)
+        roi_slice = self.ROIOneHot(roi_slice)
+
+        return t2_slice[np.newaxis, np.newaxis], roi_slice
+
+    def run(self, case, model, model_path, inputs, outputs, is_save=False, weights_list=None):
         device = torch.device('cuda:3' if torch.cuda.is_available() else 'cpu')
         if weights_list is None:
             weights_list = [one for one in IterateCase(model_path, only_folder=False, verbose=0) if one.is_file()]
@@ -113,12 +169,13 @@ class ProstateXSeg():
 
         if isinstance(inputs, np.ndarray):
             inputs = torch.from_numpy(inputs)
+
         inputs = MoveTensorsToDevice(inputs, device)
 
         # print('****** predicting {} | (｀・ω・´) ****** '.format(case))
 
         with torch.no_grad():
-            preds = model(inputs, epoch=10, is_multipy=is_multipy)
+            preds = model(inputs.float())
 
         if is_save:
             result_folder = os.path.join(model_path, 'CaseResult')
@@ -133,70 +190,44 @@ class ProstateXSeg():
 
 if __name__ == '__main__':
     from PreProcess.Nii2NPY import ROIOneHot
-    from SegModel.SuccessfulWNet import WNet2_5D
-    from SegModel.WNet import WNet2_5D_channel
+    from SegModel.UNet3D.unet3d import UNet
     from Statistics.Metric import BinarySegmentation
+    from MeDIT.Visualization import FlattenImages
+    import SimpleITK as sitk
 
     seg = ProstateXSeg((192, 192))
     data_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OriginalData'
-    model_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model'
-    model_name = 'WNet_1221_mse'
+    model_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model3D'
+    model_name = 'UNet3D_1214'
 
-    model = WNet2_5D(1, 3, 1, 5)
+    model = UNet(1, 5, num_filters=16)
 
-    # df_train = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH', 'train_case_name.csv'))
-    # df_val = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH', 'val_case_name.csv'))
-    df_train = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH', 'all_train_case_name.csv'))
+    df_train = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH', 'train_case_name.csv'))
+    df_val = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH', 'val_case_name.csv'))
     df_test = pd.read_csv(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH', 'test_case_name.csv'))
-    for i, df in enumerate([df_train, df_test]):
-        HD_dict = {'PZ': [], 'TZ': [], 'DPU': [], 'AFS': []}
-        Dice_dict = {'PZ': [], 'TZ': [], 'DPU': [], 'AFS': []}
+    for i, df in enumerate([df_train, df_val, df_test]):
+        HD_dict = {'PZ': [], 'CZ': [], 'DPU': [], 'AFS': []}
+        Dice_dict = {'PZ': [], 'CZ': [], 'DPU': [], 'AFS': []}
         case_list = df.values.tolist()[0]
         bs = BinarySegmentation(is_show=False)
         for case in sorted(case_list):
-            t2_arr, roi_arr = seg.Nii2NPY(case, os.path.join(data_path, case), slice_num=3)
-            preds_list = []
-            # plt.figure(dpi=500)
-            # plt.imshow(t2_arr[10, 1], cmap='gray')
-            # plt.contour(np.argmax(roi_arr[10], axis=0))
-            # plt.axis('off')
-            # plt.savefig(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/WNet_1220_mse/Image', '{}.jpg'.format(case)))
-            # plt.close()
-            for cv_index in range(5):
-                preds = seg.run(case, model,
-                                model_path=os.path.join(model_folder, '{}/CV_{}'.format(model_name, cv_index)),
-                                inputs=t2_arr,
-                                outputs=roi_arr,
-                                is_save=False,
-                                is_multipy=True)
-                if isinstance(preds, tuple):
-                    preds = preds[-1]
-                preds = torch.softmax(preds, dim=1).cpu().numpy()
-                # preds = torch.argmax(preds, dim=1)
-                # preds = ROIOneHot(preds)
-                # preds = preds.transpose(1, 0, 2, 3)
-                # preds = seg.KeepLargest(preds)
-                # preds = median_filter(preds, size=(1, 1, 3, 3))
-                preds_list.append(np.asarray(preds, dtype=np.float32))
-
-            mean_pred = np.mean(np.array(preds_list), axis=0)
-            mean_pred = np.argmax(mean_pred, axis=1)
-            mean_pred = ROIOneHot(mean_pred)
-            mean_pred = mean_pred.transpose(1, 0, 2, 3)
-            mean_pred = seg.KeepLargest(mean_pred)
-            mean_pred = median_filter(mean_pred, size=(1, 1, 3, 3))
-            mean_pred = np.asarray(mean_pred, dtype=np.int32)
-
-            # plt.figure()
-            # plt.imshow(t2_arr[10, 1], cmap='gray')
-            # plt.contour(np.argmax(mean_pred[10], axis=0))
-            # plt.axis('off')
-            # plt.savefig(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/WNet_1220_mse_multiply/Image', '{}.jpg'.format(case)))
-            # plt.close()
-
-            for index, classes in enumerate(['BG', 'PZ', 'TZ', 'DPU', 'AFS']):
+            t2_arr, roi_arr = seg.Nii2NPY3D(case, os.path.join(data_path, case))
+            preds = seg.run(case, model,
+                            model_path=os.path.join(model_folder, model_name),
+                            inputs=t2_arr,
+                            outputs=roi_arr,
+                            is_save=False)
+            if isinstance(preds, tuple):
+                preds = preds[-1]
+            preds = torch.softmax(preds, dim=1)
+            preds = torch.argmax(preds, dim=1).cpu().numpy()
+            preds = ROIOneHot(preds.squeeze())
+            preds = seg.KeepLargest(preds)
+            preds = median_filter(preds, size=(1, 1, 3, 3))
+            preds = np.asarray(preds, dtype=np.int32)
+            for index, classes in enumerate(['BG', 'PZ', 'CZ', 'DPU', 'AFS']):
                 if classes == 'BG': continue
-                metric = bs.Run(mean_pred[:, index], roi_arr[:, index])
+                metric = bs.Run(preds[index], roi_arr[index])
                 Dice_dict[classes].append(metric['Dice'])
                 if 'HD' in metric.keys():
                     HD_dict[classes].append(metric['HD'])
@@ -206,8 +237,8 @@ if __name__ == '__main__':
         plt.title('mean dice of PZ: {:.3f}'.format(sum(Dice_dict['PZ']) / len(Dice_dict['PZ'])))
         plt.hist(Dice_dict['PZ'], bins=20)
         plt.subplot(222)
-        plt.title('mean dice of TZ: {:.3f}'.format(sum(Dice_dict['TZ']) / len(Dice_dict['TZ'])))
-        plt.hist(Dice_dict['TZ'], bins=20)
+        plt.title('mean dice of CZ: {:.3f}'.format(sum(Dice_dict['CZ']) / len(Dice_dict['CZ'])))
+        plt.hist(Dice_dict['CZ'], bins=20)
         plt.subplot(223)
         plt.title('mean dice of DPU: {:.3f}'.format(sum(Dice_dict['DPU']) / len(Dice_dict['DPU'])))
         plt.hist(Dice_dict['DPU'], bins=20)
@@ -216,9 +247,9 @@ if __name__ == '__main__':
         plt.hist(Dice_dict['AFS'], bins=20)
         plt.show()
 
-        print('{:.3f} / {:.3f} / {:.3f} / {:.3f}'.format(sum(Dice_dict['PZ']) / len(Dice_dict['PZ']), sum(Dice_dict['TZ']) / len(Dice_dict['TZ']),
+        print('{:.3f} / {:.3f} / {:.3f} / {:.3f}'.format(sum(Dice_dict['PZ']) / len(Dice_dict['PZ']), sum(Dice_dict['CZ']) / len(Dice_dict['CZ']),
                                                          sum(Dice_dict['DPU']) / len(Dice_dict['DPU']), sum(Dice_dict['AFS']) / len(Dice_dict['AFS'])))
-        print('{:.3f} / {:.3f} / {:.3f} / {:.3f}'.format(sum(HD_dict['PZ']) / len(HD_dict['PZ']), sum(HD_dict['TZ']) / len(HD_dict['TZ']),
+        print('{:.3f} / {:.3f} / {:.3f} / {:.3f}'.format(sum(HD_dict['PZ']) / len(HD_dict['PZ']), sum(HD_dict['CZ']) / len(HD_dict['CZ']),
                                                          sum(HD_dict['DPU']) / len(HD_dict['DPU']), sum(HD_dict['AFS']) / len(HD_dict['AFS'])))
 
 
