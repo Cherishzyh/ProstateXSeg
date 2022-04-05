@@ -245,6 +245,29 @@ class WNet2_5D_channelcombine(nn.Module):
         return out1, out2
 
 
+class WNet2_5D_channelcombine_share(nn.Module):
+    def __init__(self, in_ch, out_ch1, out_ch2):
+        super(WNet2_5D_channelcombine_share, self).__init__()
+
+        self.encoding = Encoding(in_ch)
+        self.up1 = Up(512, 256 // 2)
+        self.up2 = Up(256, 64)
+        self.up3 = Up(128, 32)
+        self.up4 = Up(64, 32)
+        self.outc_1 = OutConv(32, out_ch1)
+        self.outc_2 = OutConv(32, out_ch2)
+
+    def forward(self, x):
+        encoding_result = self.encoding(x)
+        x = self.up1(encoding_result[0], encoding_result[1])  # 128
+        x = self.up2(x, encoding_result[2])
+        x = self.up3(x, encoding_result[3])
+        x = self.up4(x, encoding_result[4])
+        out1 = self.outc_1(x)
+        out2 = self.outc_2(x)
+        return out1, out2
+
+
 def test():
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model =WNet2_5D_channelcombine(3, 3, 3, 5)

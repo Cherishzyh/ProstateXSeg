@@ -1,8 +1,8 @@
 import torch
 import numpy as np
 from torch import nn
-from BasicTool.MeDIT.Visualization import Imshow3DArray
-from BasicTool.MeDIT.Normalize import Normalize01
+from MeDIT.Visualization import Imshow3DArray
+from MeDIT.Normalize import Normalize01
 
 
 def EdgeExtracted(pred):

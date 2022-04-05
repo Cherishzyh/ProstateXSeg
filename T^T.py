@@ -535,26 +535,92 @@ def Count():
 # plt.hist(data_3.flatten(), bins=50, color='y', alpha=0.3)
 # plt.show()
 
-from copy import deepcopy
-from MeDIT.Visualization import FlattenImages
-case_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm'
-t2_path = os.path.join(case_path, 'T2')
-pz_path = os.path.join(case_path, 'PZ')
-# image, data, _ = LoadImage(os.path.join(case_path, 't2.nii'))
-# _, roi, _ = LoadImage(os.path.join(case_path, 'roi.nii.gz'), dtype=np.int32)
-# print(image.GetSpacing(), image.GetSize())
-for case in os.listdir(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm/T2'):
-    try:
-        t2 = np.load(os.path.join(t2_path, case))
-        pz = np.load(os.path.join(pz_path, case))
-        plt.figure(figsize=(8, 8), dpi=100)
-        plt.gca().xaxis.set_major_locator(plt.NullLocator())
-        plt.gca().yaxis.set_major_locator(plt.NullLocator())
-        plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
-        plt.margins(0, 0)
-        plt.imshow(t2[1], cmap='gray')
-        plt.contour(pz[0], colors='r')
-        plt.savefig(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm/Image', '{}.jpg'.format(case.split('.npy')[0])), pad_inches=0)
+# from copy import deepcopy
+# from MeDIT.Visualization import FlattenImages
+# case_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm'
+# t2_path = os.path.join(case_path, 'T2')
+# pz_path = os.path.join(case_path, 'PZ')
+# # image, data, _ = LoadImage(os.path.join(case_path, 't2.nii'))
+# # _, roi, _ = LoadImage(os.path.join(case_path, 'roi.nii.gz'), dtype=np.int32)
+# # print(image.GetSpacing(), image.GetSize())
+# for case in os.listdir(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm/T2'):
+#     try:
+#         t2 = np.load(os.path.join(t2_path, case))
+#         pz = np.load(os.path.join(pz_path, case))
+#         plt.figure(figsize=(8, 8), dpi=100)
+#         plt.gca().xaxis.set_major_locator(plt.NullLocator())
+#         plt.gca().yaxis.set_major_locator(plt.NullLocator())
+#         plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+#         plt.margins(0, 0)
+#         plt.imshow(t2[1], cmap='gray')
+#         plt.contour(pz[0], colors='r')
+#         plt.savefig(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm/Image', '{}.jpg'.format(case.split('.npy')[0])), pad_inches=0)
+#         plt.close()
+#     except Exception as e:
+#         print(e)
+
+
+def GetCenter(mask):
+    roi_row = np.sum(mask, axis=1)
+    roi_column = np.sum(mask, axis=0)
+
+    row = np.nonzero(roi_row)[0]
+    column = np.nonzero(roi_column)[0]
+
+    center = [int(np.mean(row)), int(np.mean(column))]
+    return center
+
+
+
+def SaveFig():
+    from MeDIT.SaveAndLoad import LoadImage
+    from MeDIT.Visualization import FlattenImages
+    from MeDIT.ArrayProcess import ExtractBlock
+    from copy import deepcopy
+    folder = r'W:\Public Datasets\PROSTATEx_Seg\Seg'
+    for case in os.listdir(folder):
+        t2_path = os.path.join(folder, '{}/t2.nii'.format(case))
+        roi_path = os.path.join(folder, '{}/roi.nii.gz'.format(case))
+        _, t2, _ = LoadImage(t2_path)
+        _, roi, _ = LoadImage(roi_path)
+        roi_asf = deepcopy(roi)
+        roi_asf[roi_asf != 1] = 0
+        roi_asf[roi == 1] = 1
+        center = GetCenter(roi[:, :, roi.shape[-1]//2])
+        t2, _ = ExtractBlock(t2, (140, 140, t2.shape[-1]), center_point=(center[0], center[1], roi.shape[-1]//2))
+        roi_asf, _ = ExtractBlock(roi_asf, (140, 140, t2.shape[-1]), center_point=(center[0], center[1], roi.shape[-1]//2))
+        slice = np.count_nonzero(roi_asf, axis=(0, 1))
+        slice_list = [index for index in range(len(slice)) if slice[index] > 0]
+        merge_image = FlattenImages(list(t2[:, :, slice_list].transpose(2, 0, 1)))
+        merge_roi = FlattenImages(list(roi_asf[:, :, slice_list].transpose(2, 0, 1)))
+        plt.figure(0, figsize=(12, 12))
+        plt.axis('off')
+        plt.imshow(merge_image, cmap='gray')
+        plt.contour(merge_roi, colors='r')
+        plt.savefig(os.path.join(r'C:\Users\ZhangYihong\Desktop\image_pz', '{}.jpg'.format(case)), bbox_inches='tight', pad_inches=0.05)
         plt.close()
-    except Exception as e:
-        print(e)
+        print(case)
+# SaveFig()
+
+
+pz, tz, dpu, asf = 0, 0, 0, 0
+train_name = pd.read_csv(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/all_train_name.csv', index_col=False).values[0].tolist()
+test_name = pd.read_csv(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/test_name.csv', index_col=False).values[0].tolist()
+train_name = [case for case in train_name if '_-_slice0' not in case]
+test_name = [case for case in test_name if '_-_slice0' not in case]
+for case in os.listdir(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm/PZ'):
+    if case.split('.npy')[0] in test_name:
+        PZ = np.load(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm/PZ', case))
+        TZ = np.load(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm/CZ', case))
+        AS = np.load(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm/ASF', case))
+        DPU = np.load(os.path.join(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Data/Three_CorrectNorm/DPU', case))
+
+        if np.sum(PZ) > 0:
+            pz += 1
+        if np.sum(TZ) > 0:
+            tz += 1
+        if np.sum(DPU) > 0:
+            dpu += 1
+        if np.sum(AS) > 0:
+            asf += 1
+print(pz, tz, dpu, asf)
