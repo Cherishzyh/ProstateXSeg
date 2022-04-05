@@ -1,4 +1,3 @@
-import os
 import numpy as np
 from copy import deepcopy
 import matplotlib.pyplot as plt
@@ -7,8 +6,8 @@ from scipy.ndimage.filters import maximum_filter, median_filter
 from scipy.spatial.distance import cdist
 from scipy.ndimage import label
 
-from MeDIT.SaveAndLoad import LoadImage
-from MeDIT.Normalize import Normalize01
+from SSHProject.BasicTool.MeDIT.SaveAndLoad import LoadImage
+from SSHProject.BasicTool.MeDIT.Normalize import Normalize01
 
 
 # def IntraSliceFilter(attention, diff_value, is_show=False):
@@ -80,7 +79,7 @@ def GetShortestDis(dot, edge):
     return np.min(dis)
 
 
-def DistanceMap(roi, is_show=False, is_decrease=True):
+def DistanceMap(roi, is_show=False):
     # assert np.ndim(roi) == 2
     # assert np.squeeze(np.ndim(roi)) == 2
     roi = np.squeeze(roi)
@@ -105,10 +104,7 @@ def DistanceMap(roi, is_show=False, is_decrease=True):
             else:
                 indexs = np.array([(x_index, y_index)])
                 value = GetShortestDis(indexs, edge_index)
-                if is_decrease:
-                    dis_map[x_index][y_index] = - value
-                else:
-                    dis_map[x_index][y_index] = value
+                dis_map[x_index][y_index] = - value
                 # dis_map[x_index][y_index] = 1. / (value+1)
     dis_map = Normalize01(dis_map)
     # print(np.min(dis_map), np.max(dis_map))
@@ -125,28 +121,12 @@ def DistanceMap(roi, is_show=False, is_decrease=True):
 
 if __name__ == '__main__':
 
-    # roi_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OriginalData/ProstateX-0340/roi.nii.gz'
-    # base_rate = 0.025
-    #
-    # image, roi, _ = LoadImage(roi_path)
-    #
-    # # result = IntraSliceFilter(roi[..., 10], base_rate)  #result.shape=(23, 399, 399)
-    # roi = roi[..., 10]
-    # dis_map = DistanceMap(roi, is_show=True)
-    #
-    roi_folder = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice/RoiSlice'
-    dis_root = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OneSlice/DistanceMap'
+    roi_path = r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/OriginalData/ProstateX-0340/roi.nii.gz'
+    base_rate = 0.025
 
-    case_num = len(os.listdir(roi_folder))
-    for index, case in enumerate(os.listdir(roi_folder)):
-        dis_list = []
-        roi = np.load(os.path.join(roi_folder, case))
-        for slice in range(roi.shape[0]):
-            dis = DistanceMap(roi[slice, ...], is_decrease=False)
-            dis_list.append(dis)
-        dis_map = np.array(dis_list)
-        print('**************save {} | {} / {}****************'.format(case[:case.index('.npy')], index+1, case_num))
-        np.save(os.path.join(dis_root, case), dis_map)
+    image, roi, _ = LoadImage(roi_path)
 
-
+    # result = IntraSliceFilter(roi[..., 10], base_rate)  #result.shape=(23, 399, 399)
+    roi = roi[..., 10]
+    dis_map = DistanceMap(roi, is_show=True)
 
