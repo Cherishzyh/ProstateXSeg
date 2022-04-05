@@ -1,8 +1,11 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from SegModel.UNet import DoubleConv
-from PreProcess.DistanceMapNumpy import DistanceMap
+from SegModel.UNet_Git.unet_model import *
+from SegModel.UNet_Git.unet_parts import *
+from SegModel.Block import *
 
 
 class WNet(nn.Module):
@@ -59,6 +62,7 @@ class WNet(nn.Module):
         x1_7 = self.Conv1_7(x1_7)
 
         out1 = self.Out1(x1_7)
+
         input2 = out1*input1
 
         x2_1 = self.Conv2_1(input1)
@@ -88,14 +92,69 @@ class WNet(nn.Module):
         return torch.softmax(out1, dim=1), torch.softmax(out2, dim=1)
 
 
+class WNet2_5D(nn.Module):
+    def __init__(self, in_ch1, out_ch1, in_ch2, out_ch2, filters=32):
+        super(WNet2_5D, self).__init__()
+        self.UNet1 = UNet25D(in_ch1, out_ch1)
+        self.UNet2 = UNet25D(in_ch2, out_ch2)
+
+    def forward(self, x):
+        # input1 = x
+        input1 = input2 = x
+        out1 = self.UNet1(input1)
+        # out1_softmax = F.softmax(out1, dim=1)
+        # other = torch.argmax(out1_softmax, dim=1, keepdim=True)
+        # input2 = x * other
+        out2 = self.UNet2(input2)
+        return out1, out2
+
+
+class WNet2_5D_channel(nn.Module):
+    def __init__(self, in_ch1, out_ch1, in_ch2, out_ch2, filters=32):
+        super(WNet2_5D_channel, self).__init__()
+        self.UNet1 = UNet(in_ch1, out_ch1, channels=filters)
+        self.UNet2 = UNet(in_ch2, out_ch2, channels=filters)
+
+    def forward(self, x):
+        input1 = x
+        out1 = self.UNet1(input1)
+        out1_softmax = F.softmax(out1, dim=1)
+        other = torch.clamp(torch.argmax(out1_softmax, dim=1, keepdim=True), max=1, min=0)
+        input2 = x * other
+        out2 = self.UNet2(input2)
+        return out1, out2
+
+
+class WNet2_5D_weightshared(nn.Module):
+    def __init__(self, in_ch, out_ch1, out_ch2, filters=32):
+        super(WNet2_5D_weightshared, self).__init__()
+        self.UNet = UNet_NoOut(in_ch, channels=filters)
+        self.Out1 = OutConv(filters, out_ch1)
+        self.Out2 = OutConv(filters, out_ch2)
+
+    def forward(self, x):
+        input1 = input2 = x
+        out1 = self.UNet(input1)
+        out2 = self.UNet(input2)
+        # out1_softmax = F.softmax(out1, dim=1)
+        # other = torch.argmax(out1_softmax, dim=1, keepdim=True)
+        out1 = self.Out1(out1)
+        out2 = self.Out2(out2)
+        return torch.softmax(out1, dim=1), torch.softmax(out2, dim=1)
+
+
 def test():
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    model = WNet(in_ch1=1, out_ch1=2, in_ch2=2, out_ch2=3)
+    model = WNet2_5D(in_ch1=1, out_ch1=3, in_ch2=1, out_ch2=5)
     model = model.to(device)
-    print(model)
-    inputs = torch.randn(1, 1, 200, 200).to(device)
-    prediction1, prediction2 = model(inputs)
-    print(prediction1.shape, prediction2.shape)
+    # parameters infomation of network
+    # for name, parameters in model.named_parameters():
+    #     print(name, ':', parameters.size())
+    model.load_state_dict(torch.load(r'/home/zhangyihong/Documents/ProstateX_Seg_ZYH/Model/WNet_0408/22-2.948752.pt'))
+    # print(model)
+    # inputs = torch.randn(12, 3, 200, 200).to(device)
+    # prediction1, prediction2 = model(inputs)
+    # print(prediction1.shape, prediction2.shape)
 
 
 if __name__ == '__main__':

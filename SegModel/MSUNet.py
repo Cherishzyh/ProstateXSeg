@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from SegModel.UNet import DoubleConv
 
-
+'''MSUNet = Multi Supervision UNet_Git'''
 class MSUNet(nn.Module):
     def __init__(self, in_channels, out_channels, filters=32):
         super(MSUNet, self).__init__()

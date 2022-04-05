@@ -1,27 +1,75 @@
-# 分割模型（参考周五段毅汇报的那篇综述，中间有一块描述怎么计算）：
-# 模型输入有两个：模型分割的ROI（二值化的np.array 2D/3D）和模型真实ROI（二值化的np.array 2D/3D）。
-# 如果是多标签分类，每个做单独统计
-
-# Relative volume difference (RVD)   1
-# symmetric volume difference (SVD)  1
-# volumetric overlap error (VOE)  1
-# Jaccard similarity coefficient (Jaccard)  1
-# Average symmetric surface distance (ASD)  1
-# Root mean square symmetric surface distance (RMSD)  1
-# Maximum symmetric surface distance (MSD) 1
-
-from enum import Enum
+import os
 import numpy as np
+import pandas as pd
 import SimpleITK as sitk
+from sklearn import metrics
 
-import torch
-import torch.nn as nn
 
 def Dice(pred, label):
     smooth = 1
 
     intersection = (pred * label).sum()
     return (2 * intersection + smooth) / (pred.sum() + label.sum() + smooth)
+
+
+def Dice4Torch(pred, label):
+    smooth = 1
+
+    input_flat = pred.contiguous().view(-1)
+    target_flat = label.contiguous().view(-1)
+
+    intersection = (input_flat * target_flat).sum()
+    return (2 * intersection + smooth) / (input_flat.sum() + target_flat.sum() + smooth)
+
+
+class BinarySegmentation(object):
+    def __init__(self, store_folder=r'', is_show=True):
+        self._metric = {}
+        self.show = is_show
+        self.store_path = store_folder
+        pass
+
+    def _Dice(self, pred, label):
+        smooth = 1
+        intersection = (pred * label).sum()
+        self._metric['Dice'] = (2 * intersection + smooth) / (pred.sum() + label.sum() + smooth)
+
+    def _HausdorffDistanceImage(self, pred_image, label_image):
+        hausdorff_computer = sitk.HausdorffDistanceImageFilter()
+        hausdorff_computer.Execute(pred_image, label_image)
+        self._metric['HD Image'] = hausdorff_computer.GetHausdorffDistance()
+
+    def _HausdorffDistance(self, pred, label):
+        pred_image = sitk.GetImageFromArray(pred)
+        label_image = sitk.GetImageFromArray(label)
+
+        hausdorff_computer = sitk.HausdorffDistanceImageFilter()
+        hausdorff_computer.Execute(pred_image, label_image)
+        self._metric['HD'] = hausdorff_computer.GetHausdorffDistance()
+
+    def ShowMetric(self):
+        if self.show:
+            print(self._metric)
+
+    def SaveMetric(self):
+        if self.store_path and self.store_path.endswith('csv'):
+            df = pd.DataFrame(self._metric, index=[0])
+            df.to_csv(self.store_path)
+
+    def Run(self, pred, label):
+        # Image类型的相关计算
+        assert(isinstance(pred, np.ndarray) and isinstance(label, np.ndarray))
+        assert(pred.shape == label.shape)
+
+        self._Dice(pred, label)
+        if (np.unique(pred).size == 2 and np.unique(label).size == 2):
+            self._HausdorffDistance(pred, label)
+
+        self.ShowMetric()
+        self.SaveMetric()
+        return self._metric
+
+
 
 if __name__ == '__main__':
     input = np.asarray([[0, 0, 0], [0, 0, 0], [0, 1, 0]])
